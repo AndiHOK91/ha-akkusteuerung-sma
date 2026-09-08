@@ -8,11 +8,15 @@ from homeassistant import config_entries
 from homeassistant.helpers import selector
 
 from .const import (
-    CONF_BATTERY_CAPACITY,
+    CONF_BATTERY_CAPACITY_ENTITY,
+    CONF_BATTERY_POWER_ENTITY,
+    CONF_BATTERY_SOC_ENTITY,
+    CONF_GRID_POWER_ENTITY,
     CONF_HOST,
+    CONF_HOUSE_CONSUMPTION_ENTITY,
     CONF_MODBUS_ID,
     CONF_PORT,
-    DEFAULT_BATTERY_CAPACITY,
+    CONF_PV_POWER_ENTITY,
     DEFAULT_MODBUS_ID,
     DEFAULT_PORT,
     DOMAIN,
@@ -39,35 +43,37 @@ class SMAAkkuConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     vol.Required(CONF_HOST): str,
                     vol.Optional(CONF_PORT, default=DEFAULT_PORT): int,
                     vol.Optional(CONF_MODBUS_ID, default=DEFAULT_MODBUS_ID): int,
-                    vol.Optional(
-                        CONF_BATTERY_CAPACITY,
-                        default=DEFAULT_BATTERY_CAPACITY,
-                    ): vol.Coerce(float),
-                    vol.Required("battery_soc_entity"): selector.EntitySelector(
+                    vol.Required(CONF_BATTERY_CAPACITY_ENTITY): selector.EntitySelector(
+                        selector.EntitySelectorConfig(
+                            domain="sensor",
+                            device_class="energy",
+                        )
+                    ),
+                    vol.Required(CONF_BATTERY_SOC_ENTITY): selector.EntitySelector(
                         selector.EntitySelectorConfig(
                             domain="sensor",
                             device_class="battery",
                         )
                     ),
-                    vol.Required("battery_power_entity"): selector.EntitySelector(
+                    vol.Required(CONF_BATTERY_POWER_ENTITY): selector.EntitySelector(
                         selector.EntitySelectorConfig(
                             domain="sensor",
                             device_class="power",
                         )
                     ),
-                    vol.Required("pv_power_entity"): selector.EntitySelector(
-                        selector.EntitySelectorConfig(
-                            domain="sensor",
-                            device_class="power",
-                    )
-                    ),
-                    vol.Required("grid_power_entity"): selector.EntitySelector(
+                    vol.Required(CONF_PV_POWER_ENTITY): selector.EntitySelector(
                         selector.EntitySelectorConfig(
                             domain="sensor",
                             device_class="power",
                         )
                     ),
-                    vol.Required("house_consumption_entity"): selector.EntitySelector(
+                    vol.Required(CONF_GRID_POWER_ENTITY): selector.EntitySelector(
+                        selector.EntitySelectorConfig(
+                            domain="sensor",
+                            device_class="power",
+                        )
+                    ),
+                    vol.Required(CONF_HOUSE_CONSUMPTION_ENTITY): selector.EntitySelector(
                         selector.EntitySelectorConfig(
                             domain="sensor",
                             device_class="power",
