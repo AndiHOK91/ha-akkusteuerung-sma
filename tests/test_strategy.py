@@ -1,18 +1,25 @@
 """Parity-oriented tests for the migrated Opti strategy ladder."""
 
 from dataclasses import replace
+import importlib.util
+from pathlib import Path
+import sys
 import unittest
 
-from custom_components.akkusteuerung_sma.strategy import (
-    MODE_CHARGE_ONLY,
-    MODE_DISCHARGE_ONLY,
-    MODE_DYNAMIC,
-    MODE_GRID_CHARGE,
-    MODE_PAUSE,
-    StrategyInput,
-    decide_strategy,
-)
+MODULE_PATH = Path(__file__).parents[1] / "custom_components" / "akkusteuerung_sma" / "strategy.py"
+SPEC = importlib.util.spec_from_file_location("akkusteuerung_strategy", MODULE_PATH)
+assert SPEC is not None and SPEC.loader is not None
+strategy = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = strategy
+SPEC.loader.exec_module(strategy)
 
+MODE_CHARGE_ONLY = strategy.MODE_CHARGE_ONLY
+MODE_DISCHARGE_ONLY = strategy.MODE_DISCHARGE_ONLY
+MODE_DYNAMIC = strategy.MODE_DYNAMIC
+MODE_GRID_CHARGE = strategy.MODE_GRID_CHARGE
+MODE_PAUSE = strategy.MODE_PAUSE
+StrategyInput = strategy.StrategyInput
+decide_strategy = strategy.decide_strategy
 
 BASE = StrategyInput(
     master_enabled=True,
