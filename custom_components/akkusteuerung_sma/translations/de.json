@@ -19,8 +19,17 @@
           "battery_discharge_power_entity": "Batterie-Entladeleistung"
         },
         "data_description": {
+          "battery_soc_entity": "Aktueller Ladezustand der Batterie in Prozent (%). Erwarteter Wertebereich: 0–100 %. Beispielbezeichnung aus der Optic00-Doku: sensor.sma_battery_soc. Im Opti-Layer wird daraus sensor.opti_soc.",
+          "battery_temp_entity": "Aktuelle Batterietemperatur in °C. Dieses Feld ist optional. Beispielbezeichnung aus der Optic00-Doku: sensor.sma_battery_temp. Wenn kein Sensor gewählt wird, verwendet die Integration wie das Original 20 °C als neutralen Fallback.",
+          "battery_capacity_entity": "Nennkapazität der Batterie. Der Wert muss größer als 0 sein. Beispielbezeichnung aus der Optic00-Doku: sensor.sma_battery_capacity. Bei SMA wird die Kapazität häufig in Wh geliefert; die gewählte Einheit darunter bestimmt, ob die Integration durch 1000 in kWh umrechnet.",
+          "battery_capacity_unit": "Einheit des ausgewählten Kapazitätssensors. Wähle Wh, wenn der Sensor z. B. 12800 für 12,8 kWh liefert; wähle kWh, wenn der Sensor bereits z. B. 12,8 liefert.",
           "pv_power_entity": "Aktuelle AC-Ausgangsleistung des Wechselrichters in Watt (W), also die Leistung auf der AC-Seite nach der DC/AC-Wandlung. Erwarteter Wertebereich: >= 0 W, typischerweise von 0 W bis ungefähr zur AC-Nennleistung des Wechselrichters. Beispielbezeichnung aus der Optic00-Doku: sensor.sma_pv_power. Im Opti-Layer wird daraus sensor.opti_pv_power_w.",
-          "pv_generation_entity": "Aktuelle PV-Erzeugung auf der DC-Seite bzw. DC-Eingangsleistung/Gesamterzeugung in Watt (W). Erwarteter Wertebereich: >= 0 W; der DC-Wert kann wegen Wandlungsverlusten oder AC-Begrenzung zeitweise etwas höher als die AC-Ausgangsleistung sein. Beispielbezeichnung aus der Optic00-Doku: sensor.sma_pv_generation. Im Opti-Layer wird daraus sensor.opti_pv_generation_w. Wenn deine Anlage keinen separaten DC-Leistungssensor bereitstellt, darf hier dieselbe Entität wie bei der PV-Leistung (AC) gewählt werden."
+          "pv_generation_entity": "Aktuelle PV-Erzeugung auf der DC-Seite bzw. DC-Eingangsleistung/Gesamterzeugung in Watt (W). Erwarteter Wertebereich: >= 0 W; der DC-Wert kann wegen Wandlungsverlusten oder AC-Begrenzung zeitweise etwas höher als die AC-Ausgangsleistung sein. Beispielbezeichnung aus der Optic00-Doku: sensor.sma_pv_generation. Im Opti-Layer wird daraus sensor.opti_pv_generation_w. Wenn deine Anlage keinen separaten DC-Leistungssensor bereitstellt, darf hier dieselbe Entität wie bei der PV-Leistung (AC) gewählt werden.",
+          "grid_export_entity": "Aktuelle Netzeinspeisung in Watt (W). Erwartet wird ein nichtnegativer Wert: 0 W oder größer; positiv bedeutet Einspeisung ins Netz. Beispielbezeichnung aus der Optic00-Doku: sensor.sma_grid_export_power. Im Opti-Layer wird daraus sensor.opti_grid_export_w.",
+          "grid_import_entity": "Aktueller Netzbezug in Watt (W). Erwartet wird ein nichtnegativer Wert: 0 W oder größer; positiv bedeutet Bezug aus dem Netz. Typisches SMA-Beispiel aus der Optic00-Doku: sensor.sma_metering_power_absorbed. Im Opti-Layer wird daraus sensor.opti_grid_import_w.",
+          "house_consumption_entity": "Aktueller Hausverbrauch in Watt (W), Wertebereich normalerweise >= 0 W. Beispielbezeichnung aus der Optic00-Doku: sensor.sma_house_consumption. Daraus erzeugt die Integration sensor.opti_house_consumption_w und den geglätteten 60-Minuten-Mittelwert.",
+          "battery_charge_power_entity": "Aktuelle Batterie-Ladeleistung in Watt (W), bei SMA typischerweise als eigener nichtnegativer Sensor. Beispiel aus der Optic00-Doku: sensor.sma_battery_charge. Zusammen mit der Entladeleistung berechnet die Integration battery_power = Laden - Entladen; positiv bedeutet Laden.",
+          "battery_discharge_power_entity": "Aktuelle Batterie-Entladeleistung in Watt (W), bei SMA typischerweise als eigener nichtnegativer Sensor. Beispiel aus der Optic00-Doku: sensor.sma_battery_discharge. Zusammen mit der Ladeleistung berechnet die Integration battery_power = Laden - Entladen; negativ bedeutet Entladen."
         }
       },
       "market": {
@@ -33,6 +42,14 @@
           "forecast_today_entity": "Solcast Prognose heute",
           "forecast_tomorrow_entity": "Solcast Prognose morgen",
           "forecast_remaining_entity": "Solcast Restprognose heute"
+        },
+        "data_description": {
+          "price_current_entity": "Aktueller Strompreis als einzelner Zahlenwert. Typisch sind EUR/kWh oder ct/kWh; die Einheit wird im Feld darunter gewählt. Optic00 nennt z. B. Tibber- oder Nordpool-Preissensoren. Intern arbeitet die Strategie mit ct/kWh.",
+          "price_series_entity": "Optionaler Preissensor mit Attributen today und tomorrow. Die Attribute dürfen Listen aus Zahlen oder Einträgen mit total/price/value enthalten. Bleibt das Feld leer, wird automatisch die aktuelle Strompreis-Entität auf diese Attribute geprüft. Fehlen trotzdem mindestens 4 verwertbare Preise, bleiben Preisniveau und Peak-Reserve fail-closed inaktiv/unavailable.",
+          "price_unit": "Einheit der ausgewählten Preisquelle. Bei EUR/kWh rechnet die Integration einmalig mit ×100 in ct/kWh um; bei ct/kWh erfolgt keine Umrechnung.",
+          "forecast_today_entity": "Solcast-PV-Prognose für den gesamten heutigen Tag in kWh, Wertebereich >= 0 kWh. Beispiel aus der Optic00-Doku: sensor.solcast_pv_forecast_forecast_today. Wenn vorhanden, wird das Attribut estimate10 als pessimistische P10-Schätzung übernommen.",
+          "forecast_tomorrow_entity": "Solcast-PV-Prognose für den gesamten morgigen Tag in kWh, Wertebereich >= 0 kWh. Beispiel aus der Optic00-Doku: sensor.solcast_pv_forecast_forecast_tomorrow. Wenn vorhanden, wird estimate10 als P10-Schätzung verwendet.",
+          "forecast_remaining_entity": "Noch erwartete PV-Energie für den Rest des heutigen Tages in kWh, Wertebereich >= 0 kWh. Beispiel aus der Optic00-Doku: sensor.solcast_pv_forecast_forecast_remaining_today. Wenn vorhanden, wird estimate10 als konservative P10-Schätzung verwendet."
         }
       }
     }
