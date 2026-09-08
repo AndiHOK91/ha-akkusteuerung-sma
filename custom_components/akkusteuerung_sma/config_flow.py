@@ -18,7 +18,6 @@ from .const import (
     CONF_BATTERY_DISCHARGE_POWER_ENTITY,
     CONF_BATTERY_SOC_ENTITY,
     CONF_BATTERY_TEMP_ENTITY,
-    CONF_BYD_CELL_SPREAD_ENTITY,
     CONF_FORECAST_REMAINING_ENTITY,
     CONF_FORECAST_TODAY_ENTITY,
     CONF_FORECAST_TOMORROW_ENTITY,
@@ -84,7 +83,6 @@ class SMAAkkuConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     vol.Required(CONF_HOUSE_CONSUMPTION_ENTITY): _power_selector(),
                     vol.Required(CONF_BATTERY_CHARGE_POWER_ENTITY): _power_selector(),
                     vol.Required(CONF_BATTERY_DISCHARGE_POWER_ENTITY): _power_selector(),
-                    vol.Optional(CONF_BYD_CELL_SPREAD_ENTITY): _sensor_selector(),
                 }
             ),
         )
