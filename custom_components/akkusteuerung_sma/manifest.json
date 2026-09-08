@@ -1,0 +1,10 @@
+{
+  "domain": "akkusteuerung_sma",
+  "name": "SMA Akku Steuerung",
+  "version": "0.1.0",
+  "documentation": "https://github.com/AndiHOK91/ha-akkusteuerung-sma",
+  "requirements": [],
+  "codeowners": ["@AndiHOK91"],
+  "config_flow": true,
+  "iot_class": "local_polling"
+}
