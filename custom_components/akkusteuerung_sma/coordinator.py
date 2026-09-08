@@ -44,12 +44,13 @@ from .derived import (
     target_soc,
 )
 from .peak import calculate_peak_reserve, charge_ceiling_active, pv_rich_day
+from .strategy import MODE_AUTO, StrategyInput, decide_strategy
 
 _LOGGER = logging.getLogger(__name__)
 
 
 class SMAAkkuCoordinator(DataUpdateCoordinator[dict[str, Any]]):
-    """Read source entities and calculate the migrated Opti core layer."""
+    """Read source entities and calculate the migrated Opti layers."""
 
     def __init__(self, hass, entry):
         super().__init__(
@@ -64,14 +65,21 @@ class SMAAkkuCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._charge_ceiling_active = False
         self._charge_ceiling_max_soc: float | None = None
 
+    def _runtime(self) -> dict[str, Any]:
+        return self.hass.data.get(DOMAIN, {}).get(self.entry.entry_id, {})
+
+    def _settings(self) -> dict[str, Any]:
+        return self._runtime().setdefault("settings", {})
+
+    def _setting(self, key: str, default: Any) -> Any:
+        return self._settings().get(key, default)
+
     def _get_state(self, config_key: str, *, optional: bool = False):
-        """Return the state object configured for a source key."""
         entity_id = self.entry.data.get(config_key)
         if not entity_id:
             if optional:
                 return None
             raise UpdateFailed(f"Keine Entität für {config_key} konfiguriert")
-
         state = self.hass.states.get(entity_id)
         if state is None or state.state in (STATE_UNKNOWN, STATE_UNAVAILABLE, ""):
             if optional:
@@ -86,7 +94,6 @@ class SMAAkkuCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         optional: bool = False,
         default: float = 0.0,
     ) -> float:
-        """Return a configured source state as float."""
         state = self._get_state(config_key, optional=optional)
         if state is None:
             return default
@@ -99,22 +106,14 @@ class SMAAkkuCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 f"Entität {state.entity_id} liefert keinen numerischen Wert: {state.state}"
             ) from err
 
-    def _setting(self, key: str, default: Any) -> Any:
-        """Return a migrated helper value without relying on its entity_id."""
-        runtime = self.hass.data.get(DOMAIN, {}).get(self.entry.entry_id, {})
-        return runtime.get("settings", {}).get(key, default)
-
     def _price_to_ct(self, value: float) -> float:
-        """Normalize configured price units to ct/kWh like opti_mapping."""
         if self.entry.data.get(CONF_PRICE_UNIT, PRICE_UNIT_EUR_KWH) == PRICE_UNIT_EUR_KWH:
             return value * 100.0
         return value
 
     def _normalize_price_list(self, value: Any) -> list[float]:
-        """Normalize a today/tomorrow price attribute to ct/kWh."""
         if not isinstance(value, (list, tuple)):
             return []
-
         result: list[float] = []
         for item in value:
             raw = item
@@ -127,7 +126,6 @@ class SMAAkkuCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return result
 
     def _forecast(self, config_key: str) -> tuple[float, float | None]:
-        """Return forecast state and optional estimate10 attribute."""
         state = self._get_state(config_key)
         try:
             value = float(state.state)
@@ -135,7 +133,6 @@ class SMAAkkuCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise UpdateFailed(
                 f"Entität {state.entity_id} liefert keinen numerischen Wert: {state.state}"
             ) from err
-
         estimate10 = state.attributes.get("estimate10")
         try:
             p10 = float(estimate10) if estimate10 is not None else None
@@ -144,7 +141,6 @@ class SMAAkkuCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return value, p10
 
     def _sun_datetime(self, attribute: str):
-        """Return one sun.sun datetime attribute converted to local time."""
         sun = self.hass.states.get("sun.sun")
         if sun is None:
             return None
@@ -155,12 +151,8 @@ class SMAAkkuCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return dt_util.as_local(parsed) if parsed is not None else None
 
     async def _async_update_data(self) -> dict[str, Any]:
-        """Build canonical values and the ported derived core."""
         soc = self._get_float(CONF_BATTERY_SOC_ENTITY)
-        battery_temp = self._get_float(
-            CONF_BATTERY_TEMP_ENTITY, optional=True, default=20.0
-        )
-
+        battery_temp = self._get_float(CONF_BATTERY_TEMP_ENTITY, optional=True, default=20.0)
         capacity = self._get_float(CONF_BATTERY_CAPACITY_ENTITY)
         if self.entry.data.get(CONF_BATTERY_CAPACITY_UNIT, CAPACITY_UNIT_WH) == CAPACITY_UNIT_WH:
             capacity /= 1000.0
@@ -191,8 +183,8 @@ class SMAAkkuCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         battery_power = charge_power - discharge_power
 
         # Upstream prefers the 60-minute statistics mean and falls back to the
-        # current value. The statistics entity itself is ported in a later step;
-        # this is the explicit upstream fallback path in the meantime.
+        # current value. Until the statistics entity is migrated, use that exact
+        # documented fallback.
         house_average_w = house_consumption
 
         optimism = float(self._setting("opti_forecast_optimismus", 0.0))
@@ -213,25 +205,23 @@ class SMAAkkuCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         sun_above_horizon = sun_state is not None and sun_state.state == "above_horizon"
         after_sunset = next_setting is not None and next_setting.date() != now.date()
 
-        score_hours = hours_until(now, next_setting, fallback=0.0)
         score_result = forecast_score(
             effective_remaining_kwh=effective_remaining,
             battery_capacity_kwh=capacity,
             soc=soc,
             house_consumption_w=house_average_w,
-            hours_to_sunset=score_hours,
+            hours_to_sunset=hours_until(now, next_setting, fallback=0.0),
             after_sunset=after_sunset,
             tomorrow_score=tomorrow_score,
         )
 
-        target_hours = hours_until(now, next_setting, fallback=6.0)
         min_soc = float(self._setting("minsoc", 0.0))
         max_soc = float(self._setting("maxsoc", 0.0))
         target_result = target_soc(
             battery_capacity_kwh=capacity,
             effective_remaining_kwh=effective_remaining,
             house_consumption_w=house_average_w,
-            remaining_hours=target_hours,
+            remaining_hours=hours_until(now, next_setting, fallback=6.0),
             min_soc=min_soc,
             max_soc=max_soc,
             grid_charging=bool(self._setting("hausakku_aus_netz_laden", False)),
@@ -239,8 +229,6 @@ class SMAAkkuCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self._target_level = target_result.level
 
-        # PV-rich-day hysteresis is the upstream season-aware selector for the
-        # shorter peak-reserve recharge horizon.
         self._pv_rich_day = pv_rich_day(
             next_rising=next_rising,
             now=now,
@@ -264,6 +252,7 @@ class SMAAkkuCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             max_soc=max_soc,
             min_peak_markup_ct=float(self._setting("opti_peak_min_aufschlag_ct", 0.0)),
         )
+        peak_active = peak_result.valid and capacity > 0 and peak_result.required_kwh > 0
 
         self._charge_ceiling_active = charge_ceiling_active(
             soc=soc,
@@ -277,9 +266,7 @@ class SMAAkkuCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             soc=soc,
             battery_temp_c=battery_temp,
             battery_capacity_kwh=capacity,
-            max_charge_power_w=float(
-                self._setting("akkusteuerung_max_ladestaerke", 0.0)
-            ),
+            max_charge_power_w=float(self._setting("akkusteuerung_max_ladestaerke", 0.0)),
             forecast_score_value=score_result.score,
             balancing_active=False,
         )
@@ -288,10 +275,8 @@ class SMAAkkuCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             current_price_ct, [*price_today, *price_tomorrow]
         )
         ladepreis = float(self._setting("ladepreis", -1.0))
-        price_spread = float(
-            self._setting("mindestpreisdifferenz_lade_entladepreis", 0.0)
-        )
-        min_discharge = minimum_discharge_price_ct(ladepreis, price_spread)
+        discharge_spread = float(self._setting("mindestpreisdifferenz_lade_entladepreis", 0.0))
+        min_discharge = minimum_discharge_price_ct(ladepreis, discharge_spread)
         runtime = runtime_hours(
             soc=soc,
             battery_capacity_kwh=capacity,
@@ -300,8 +285,55 @@ class SMAAkkuCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             min_soc=min_soc,
         )
 
+        current_mode = str(self._setting("akkusteuerung_modus", MODE_AUTO))
+        core_valid = 0 <= soc <= 100 and capacity > 0
+        decision = decide_strategy(
+            StrategyInput(
+                master_enabled=bool(self._setting("akku_opti_automatik", False)),
+                core_valid=core_valid,
+                soc=soc,
+                min_soc=min_soc,
+                max_soc=max_soc,
+                target_soc=target_result.target_soc,
+                current_mode=current_mode,
+                is_day=sun_above_horizon,
+                forecast_score=float(score_result.score),
+                forecast_score_tomorrow=float(tomorrow_score),
+                price_level=level,
+                current_price_ct=current_price_ct,
+                forecast_grid_charge_enabled=bool(self._setting("opti_prognose_netzladen", False)),
+                pv_surplus_charge_enabled=bool(self._setting("opti_pv_ueberschuss_ladung", False)),
+                winter_charging_allowed=True,
+                feed_in_tariff_ct=float(self._setting("opti_einspeiseverguetung_ct", 0.0)),
+                grid_charge_spread_ct=float(self._setting("opti_netzlade_spread_ct", 0.0)),
+                hold_spread_ct=float(self._setting("opti_halte_spread_ct", 0.0)),
+                peak_reserve_active=peak_active,
+                peak_reserve_soc=peak_result.reserve_soc if peak_result.valid else None,
+                peak_reserve_ve_soc=peak_result.reserve_ve_soc if peak_result.valid else None,
+                min_price_before_peak_ct=peak_result.min_price_before_peak_ct,
+                peak_price_avg_ct=peak_result.peak_price_avg_ct,
+                peak_price_ve_avg_ct=peak_result.peak_price_ve_avg_ct,
+                charge_ceiling_active=self._charge_ceiling_active,
+                charge_ceiling_max_soc=max_soc,
+                # These optional upstream features are ported next. Keeping them
+                # false here is fail-safe and avoids inventing replacement logic.
+                balancing_mode="aus",
+                ev_pause_enabled=bool(self._setting("opti_ev_akku_pause", False)),
+                ev_fast_charge_active=False,
+                surplus_70_active=False,
+                surplus_ac_active=False,
+                surplus_veto_active=False,
+            )
+        )
+        self._settings()["akkusteuerung_modus"] = decision.mode
+
+        # Upstream cleanup: when the manual grid-charge booster reaches a full
+        # battery it is cleared and the paid price is remembered.
+        if soc > 99 and bool(self._setting("hausakku_aus_netz_laden", False)):
+            self._settings()["hausakku_aus_netz_laden"] = False
+            self._settings()["ladepreis"] = current_price_ct / 100.0
+
         return {
-            # Canonical values from opti_mapping.example.yaml
             "soc": soc,
             "battery_temp": battery_temp,
             "battery_capacity_kwh": capacity,
@@ -322,7 +354,6 @@ class SMAAkkuCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "forecast_remaining_today_estimate10": forecast_remaining_p10,
             "battery_power_w": battery_power,
             "simultaneous_charge_discharge": charge_power > 0 and discharge_power > 0,
-            # Ported derived core
             "forecast_effective_remaining_kwh": effective_remaining,
             "forecast_effective_median_kwh": forecast_remaining,
             "forecast_effective_p10_kwh": (
@@ -351,9 +382,8 @@ class SMAAkkuCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "price_level_count": price_count,
             "mindestentladepreis_ct_kwh": min_discharge,
             "mindestentladepreis_ladepreis_ct": round(ladepreis * 100.0, 2),
-            "mindestentladepreis_differenz_ct": round(price_spread * 100.0, 2),
+            "mindestentladepreis_differenz_ct": round(discharge_spread * 100.0, 2),
             "runtime_h": runtime,
-            # Peak reserve / binary gates
             "pv_rich_day": self._pv_rich_day,
             "peak_reserve_valid": peak_result.valid,
             "peak_reserve_soc": peak_result.reserve_soc,
@@ -367,11 +397,12 @@ class SMAAkkuCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "peak_reserve_window_min_ct": peak_result.window_min_ct,
             "peak_reserve_horizon_end": peak_result.horizon_end.isoformat(),
             "peak_reserve_branch": peak_result.branch,
-            "peak_reserve_active": (
-                peak_result.valid and capacity > 0 and peak_result.required_kwh > 0
-            ),
+            "peak_reserve_active": peak_active,
             "charge_ceiling_active": self._charge_ceiling_active,
             "charge_ceiling_max_soc": max_soc,
             "winter_charging_allowed": True,
             "sun_above_horizon": sun_above_horizon,
+            "strategy_mode": decision.mode,
+            "strategy_reason": decision.reason,
+            "strategy_core_valid": core_valid,
         }
