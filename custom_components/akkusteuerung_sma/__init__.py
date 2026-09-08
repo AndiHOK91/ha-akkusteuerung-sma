@@ -19,12 +19,15 @@ PLATFORMS: tuple[Platform, ...] = (
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up the integration from a config entry."""
-    coordinator = SMAAkkuCoordinator(hass, entry)
-    await coordinator.async_config_entry_first_refresh()
-
+    # Runtime settings are populated by the migrated helper entities. Keeping
+    # them here avoids coupling the strategy to generated entity_ids.
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
-        "coordinator": coordinator,
+        "settings": {},
     }
+
+    coordinator = SMAAkkuCoordinator(hass, entry)
+    hass.data[DOMAIN][entry.entry_id]["coordinator"] = coordinator
+    await coordinator.async_config_entry_first_refresh()
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
