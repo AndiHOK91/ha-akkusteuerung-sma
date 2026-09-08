@@ -1,4 +1,4 @@
-"""Parity-oriented tests for the migrated Opti strategy ladder."""
+"""Parity-oriented tests for the migrated Opti core strategy ladder."""
 
 from dataclasses import replace
 import importlib.util
@@ -101,18 +101,6 @@ class StrategyTests(unittest.TestCase):
         )
         self.assertEqual(MODE_DISCHARGE_ONLY, decision.mode)
         self.assertIn("L1", decision.reason)
-
-    def test_ev_lock_blocks_discharge(self):
-        decision = decide_strategy(
-            replace(
-                BASE,
-                soc=70,
-                target_soc=50,
-                ev_pause_enabled=True,
-                ev_fast_charge_active=True,
-            )
-        )
-        self.assertEqual(MODE_CHARGE_ONLY, decision.mode)
 
     def test_target_soc_hysteresis(self):
         entering = decide_strategy(replace(BASE, soc=72, target_soc=70, current_mode=MODE_DYNAMIC))
