@@ -22,6 +22,7 @@ CONF_FORECAST_TOMORROW_ENTITY = "forecast_tomorrow_entity"
 CONF_FORECAST_REMAINING_ENTITY = "forecast_remaining_entity"
 CONF_BATTERY_CHARGE_POWER_ENTITY = "battery_charge_power_entity"
 CONF_BATTERY_DISCHARGE_POWER_ENTITY = "battery_discharge_power_entity"
+CONF_BYD_CELL_SPREAD_ENTITY = "byd_cell_spread_entity"
 
 CAPACITY_UNIT_WH = "Wh"
 CAPACITY_UNIT_KWH = "kWh"
