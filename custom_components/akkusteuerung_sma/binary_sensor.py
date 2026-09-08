@@ -9,6 +9,7 @@ from homeassistant.components.binary_sensor import BinarySensorEntity, BinarySen
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
@@ -96,7 +97,9 @@ async def async_setup_entry(
     )
 
 
-class OptiBinarySensor(CoordinatorEntity[SMAAkkuCoordinator], BinarySensorEntity):
+class OptiBinarySensor(
+    CoordinatorEntity[SMAAkkuCoordinator], BinarySensorEntity, RestoreEntity
+):
     entity_description: OptiBinaryDescription
     _attr_has_entity_name = False
 
@@ -109,6 +112,26 @@ class OptiBinarySensor(CoordinatorEntity[SMAAkkuCoordinator], BinarySensorEntity
         super().__init__(coordinator)
         self.entity_description = description
         self._attr_unique_id = f"{entry.entry_id}_{description.key}"
+
+    async def async_added_to_hass(self) -> None:
+        """Restore the upstream charge-ceiling latch across HA restarts."""
+        await super().async_added_to_hass()
+        if self.entity_description.key != "charge_ceiling_active":
+            return
+
+        restored = await self.async_get_last_state()
+        if restored is None:
+            return
+
+        previous_max_soc = restored.attributes.get("maxsoc")
+        try:
+            previous_max_soc = float(previous_max_soc)
+        except (TypeError, ValueError):
+            previous_max_soc = None
+
+        self.coordinator._charge_ceiling_active = restored.state == "on"
+        self.coordinator._charge_ceiling_max_soc = previous_max_soc
+        await self.coordinator.async_request_refresh()
 
     @property
     def is_on(self) -> bool | None:
