@@ -29,7 +29,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data[DOMAIN][entry.entry_id]["coordinator"] = coordinator
     await coordinator.async_config_entry_first_refresh()
 
+    # Forwarding the helper platforms restores their persistent states and
+    # mirrors them into the runtime settings store. Refresh once afterwards so
+    # the calculated Opti sensors immediately use those restored values instead
+    # of the first-install minima used during the bootstrap refresh.
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    await coordinator.async_request_refresh()
+
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
     return True
 
