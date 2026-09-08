@@ -91,7 +91,16 @@ class SMAAkkuConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_market(self, user_input=None):
         """Select price and Solcast source entities."""
         if user_input is not None:
-            self._config_data.update(user_input)
+            market_data = dict(user_input)
+            # A separate price-series entity is optional. Many tariff sensors
+            # expose the scalar current price and today/tomorrow attributes on
+            # the same entity. Reuse the current-price source as the canonical
+            # series source when no dedicated entity was selected.
+            market_data.setdefault(
+                CONF_PRICE_SERIES_ENTITY,
+                market_data[CONF_PRICE_CURRENT_ENTITY],
+            )
+            self._config_data.update(market_data)
             await self.async_set_unique_id("default")
             self._abort_if_unique_id_configured()
             return self.async_create_entry(
