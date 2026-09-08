@@ -245,10 +245,13 @@ def charge_power_w(
     return float(round(power))
 
 
-def price_level(current_ct_kwh: float, prices: Iterable[float]) -> tuple[str | None, float | None, int]:
-    """Port sensor.opti_price_level including midrank tie handling."""
+def price_level(
+    current_ct_kwh: float | None,
+    prices: Iterable[float],
+) -> tuple[str | None, float | None, int]:
+    """Port sensor.opti_price_level including fail-closed source handling."""
     parsed = [float(value) for value in prices if isfinite(float(value))]
-    if len(parsed) < 4:
+    if current_ct_kwh is None or len(parsed) < 4:
         return None, None, len(parsed)
 
     lower = sum(1 for value in parsed if value < current_ct_kwh)
