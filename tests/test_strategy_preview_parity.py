@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+import sys
 
 MODULE = Path(__file__).parents[1] / "custom_components" / "akkusteuerung_sma" / "strategy.py"
-spec = importlib.util.spec_from_file_location("akkusteuerung_strategy_preview", MODULE)
+MODULE_NAME = "akkusteuerung_strategy_preview"
+spec = importlib.util.spec_from_file_location(MODULE_NAME, MODULE)
 strategy = importlib.util.module_from_spec(spec)
+sys.modules[MODULE_NAME] = strategy
 assert spec.loader is not None
 spec.loader.exec_module(strategy)
 
