@@ -1,0 +1,16 @@
+{
+  "title": "SMA Akku Steuerung",
+  "config": {
+    "step": {
+      "user": {
+        "title": "SMA Akku Steuerung einrichten",
+        "data": {
+          "host": "SMA Wechselrichter IP-Adresse",
+          "port": "Modbus Port",
+          "modbus_id": "Modbus Geräte-ID",
+          "battery_capacity": "Batteriekapazität (kWh)"
+        }
+      }
+    }
+  }
+}
