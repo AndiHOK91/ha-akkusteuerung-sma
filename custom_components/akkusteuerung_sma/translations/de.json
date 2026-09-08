@@ -3,18 +3,32 @@
   "config": {
     "step": {
       "user": {
-        "title": "SMA Akku Steuerung einrichten",
-        "description": "Wähle die vorhandenen Home-Assistant-Entitäten deiner SMA STP 10 SE / BYD HVS Anlage aus.",
+        "title": "Energie- und Batteriedaten zuordnen",
+        "description": "Wähle die Home-Assistant-Entitäten aus, die den Canonical-Layer des ursprünglichen Opti-Projekts speisen.",
         "data": {
-          "host": "SMA Wechselrichter IP-Adresse",
-          "port": "Modbus Port",
-          "modbus_id": "Modbus Geräte-ID",
-          "battery_capacity_entity": "Batteriekapazität",
-          "battery_soc_entity": "Batterie-Ladezustand (SOC)",
-          "battery_power_entity": "Batterieleistung",
-          "pv_power_entity": "PV-Leistung",
-          "grid_power_entity": "Netzleistung",
-          "house_consumption_entity": "Hausverbrauch"
+          "battery_soc_entity": "Batterie-Ladezustand (SoC)",
+          "battery_temp_entity": "Batterietemperatur (optional)",
+          "battery_capacity_entity": "Batterie-Nennkapazität",
+          "battery_capacity_unit": "Einheit der Batterie-Nennkapazität",
+          "pv_power_entity": "PV-Leistung / AC-Ausgangsleistung",
+          "pv_generation_entity": "PV-Erzeugung / DC-Gesamtleistung",
+          "grid_export_entity": "Netzeinspeisung",
+          "grid_import_entity": "Netzbezug",
+          "house_consumption_entity": "Hausverbrauch",
+          "battery_charge_power_entity": "Batterie-Ladeleistung",
+          "battery_discharge_power_entity": "Batterie-Entladeleistung"
+        }
+      },
+      "market": {
+        "title": "Strompreis und PV-Prognose zuordnen",
+        "description": "Wähle die Preisquelle und die drei Solcast-Prognosesensoren wie im ursprünglichen opti_mapping.",
+        "data": {
+          "price_current_entity": "Aktueller Strompreis",
+          "price_series_entity": "Strompreis-Reihe mit today/tomorrow",
+          "price_unit": "Einheit der Strompreise",
+          "forecast_today_entity": "Solcast Prognose heute",
+          "forecast_tomorrow_entity": "Solcast Prognose morgen",
+          "forecast_remaining_entity": "Solcast Restprognose heute"
         }
       }
     }
