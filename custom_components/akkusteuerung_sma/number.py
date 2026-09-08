@@ -54,8 +54,6 @@ NUMBERS: tuple[OptiNumberDefinition, ...] = (
     OptiNumberDefinition("opti_balancing_karenz_tage", "Opti Balancing Karenz", 0, 14, 1, "Tage", icon="mdi:timer-sand"),
     OptiNumberDefinition("opti_balancing_max_ct", "Opti Balancing Preisdeckel", 0, 50, 0.5, "ct/kWh", icon="mdi:cash-lock"),
     OptiNumberDefinition("opti_balancing_done_soc", "Opti Balancing Done-SoC", 90, 100, 0.5, "%", icon="mdi:battery-heart-variant", initial=98.5),
-    OptiNumberDefinition("opti_balancing_spreizungs_schwelle", "Opti Balancing Spreizungs-Schwelle", 0, 49, 1, "mV", icon="mdi:arrow-collapse-vertical"),
-    OptiNumberDefinition("opti_balancing_bedarf_cooldown_tage", "Opti Balancing Bedarf-Cooldown Tage", 0, 30, 1, "Tage", icon="mdi:timer-sand"),
 )
 
 
@@ -64,7 +62,7 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Create migrated Opti number helpers."""
+    """Create the migrated Opti number helpers."""
     async_add_entities(OptiNumber(entry, definition) for definition in NUMBERS)
 
 
