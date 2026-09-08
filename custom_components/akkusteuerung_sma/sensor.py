@@ -12,7 +12,13 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import PERCENTAGE, UnitOfEnergy, UnitOfPower, UnitOfTemperature, UnitOfTime
+from homeassistant.const import (
+    PERCENTAGE,
+    UnitOfEnergy,
+    UnitOfPower,
+    UnitOfTemperature,
+    UnitOfTime,
+)
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -192,6 +198,27 @@ SENSORS: tuple[OptiSensorDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         none_is_unavailable=True,
     ),
+    OptiSensorDescription(
+        key="peak_reserve_soc",
+        name="Opti Peak Reserve SoC",
+        data_key="peak_reserve_soc",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:battery-lock",
+        none_is_unavailable=True,
+        attribute_keys={
+            "reserve_ve_soc": "peak_reserve_ve_soc",
+            "peak_stunden_ve": "peak_reserve_hours_ve",
+            "peak_stunden_exp": "peak_reserve_hours_exp",
+            "benoetigt_kwh": "peak_reserve_required_kwh",
+            "min_preis_vor_peak_ct": "peak_reserve_min_price_before_peak_ct",
+            "peak_preis_avg_ct": "peak_reserve_price_avg_ct",
+            "peak_preis_ve_avg_ct": "peak_reserve_ve_price_avg_ct",
+            "fenster_min_ct": "peak_reserve_window_min_ct",
+            "horizont_ende": "peak_reserve_horizon_end",
+            "branch": "peak_reserve_branch",
+        },
+    ),
 )
 
 
@@ -228,6 +255,8 @@ class OptiSensor(CoordinatorEntity[SMAAkkuCoordinator], SensorEntity):
         """Match upstream unavailable semantics where required."""
         if not super().available:
             return False
+        if self.entity_description.key == "peak_reserve_soc":
+            return bool(self.coordinator.data.get("peak_reserve_valid"))
         if self.entity_description.none_is_unavailable:
             return self.native_value is not None
         return True
