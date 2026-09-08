@@ -72,6 +72,7 @@ class OptiNumber(RestoreNumber):
     """Persistent number helper matching the original input_number semantics."""
 
     def __init__(self, entry: ConfigEntry, definition: OptiNumberDefinition) -> None:
+        self._entry_id = entry.entry_id
         self._definition = definition
         self._attr_name = definition.name
         self._attr_unique_id = f"{entry.entry_id}_{definition.key}"
@@ -81,30 +82,34 @@ class OptiNumber(RestoreNumber):
         self._attr_native_unit_of_measurement = definition.unit
         self._attr_mode = definition.mode
         self._attr_icon = definition.icon
-        # Like input_number without initial:, a fresh helper starts at minimum.
-        # The one original helper with initial: is deliberately reset each start.
         self._attr_native_value = (
             definition.initial if definition.initial is not None else definition.minimum
         )
         self._attr_has_entity_name = True
 
+    def _sync_runtime(self) -> None:
+        """Expose the helper value to the in-process strategy engine."""
+        runtime = self.hass.data.get(DOMAIN, {}).get(self._entry_id)
+        if runtime is not None:
+            runtime.setdefault("settings", {})[self._definition.key] = self._attr_native_value
+
     async def async_added_to_hass(self) -> None:
         """Restore the previous value where the original helper had no initial:."""
         await super().async_added_to_hass()
-        if self._definition.initial is not None:
-            return
-
-        last_state = await self.async_get_last_state()
-        last_number_data = await self.async_get_last_number_data()
-        if (
-            last_state is not None
-            and last_state.state not in (STATE_UNKNOWN, STATE_UNAVAILABLE)
-            and last_number_data is not None
-            and last_number_data.native_value is not None
-        ):
-            self._attr_native_value = last_number_data.native_value
+        if self._definition.initial is None:
+            last_state = await self.async_get_last_state()
+            last_number_data = await self.async_get_last_number_data()
+            if (
+                last_state is not None
+                and last_state.state not in (STATE_UNKNOWN, STATE_UNAVAILABLE)
+                and last_number_data is not None
+                and last_number_data.native_value is not None
+            ):
+                self._attr_native_value = last_number_data.native_value
+        self._sync_runtime()
 
     async def async_set_native_value(self, value: float) -> None:
         """Set the helper value."""
         self._attr_native_value = value
+        self._sync_runtime()
         self.async_write_ha_state()
