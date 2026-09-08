@@ -1,7 +1,7 @@
 {
   "domain": "akkusteuerung_sma",
   "name": "SMA Akku Steuerung",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "documentation": "https://github.com/AndiHOK91/ha-akkusteuerung-sma",
   "issue_tracker": "https://github.com/AndiHOK91/ha-akkusteuerung-sma/issues",
   "requirements": [],
