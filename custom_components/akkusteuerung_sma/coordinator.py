@@ -347,8 +347,6 @@ class SMAAkkuCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 charge_ceiling_active=self._charge_ceiling_active,
                 charge_ceiling_max_soc=max_soc,
                 balancing_mode="aus",
-                ev_pause_enabled=bool(self._setting("opti_ev_akku_pause", False)),
-                ev_fast_charge_active=False,
                 surplus_70_active=surplus_70_active,
                 surplus_ac_active=surplus_ac_active,
                 surplus_veto_active=surplus_veto_active,
