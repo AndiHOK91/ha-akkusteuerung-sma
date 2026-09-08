@@ -9,6 +9,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
+from .const import DOMAIN
+
 
 OPTIONS = [
     "Akku Automatisch",
@@ -41,8 +43,14 @@ class OptiModeSelect(SelectEntity, RestoreEntity):
     _attr_has_entity_name = True
 
     def __init__(self, entry: ConfigEntry) -> None:
+        self._entry_id = entry.entry_id
         self._attr_unique_id = f"{entry.entry_id}_akkusteuerung_modus"
         self._attr_current_option = OPTIONS[0]
+
+    def _sync_runtime(self) -> None:
+        runtime = self.hass.data.get(DOMAIN, {}).get(self._entry_id)
+        if runtime is not None:
+            runtime.setdefault("settings", {})["akkusteuerung_modus"] = self._attr_current_option
 
     async def async_added_to_hass(self) -> None:
         """Restore the last selected mode after restart."""
@@ -54,8 +62,10 @@ class OptiModeSelect(SelectEntity, RestoreEntity):
             and last_state.state in self.options
         ):
             self._attr_current_option = last_state.state
+        self._sync_runtime()
 
     async def async_select_option(self, option: str) -> None:
         """Select the battery operating mode."""
         self._attr_current_option = option
+        self._sync_runtime()
         self.async_write_ha_state()
