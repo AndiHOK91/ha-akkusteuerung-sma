@@ -21,10 +21,10 @@
       },
       "market": {
         "title": "Strompreis und PV-Prognose zuordnen",
-        "description": "Wähle die Preisquelle und die drei Solcast-Prognosesensoren wie im ursprünglichen opti_mapping.",
+        "description": "Wähle den aktuellen Strompreis und die drei Solcast-Prognosesensoren. Eine separate Strompreis-Reihe ist optional. Bleibt sie leer, wird die aktuelle Strompreis-Entität auch als Quelle für today/tomorrow verwendet, sofern diese Attribute dort vorhanden sind.",
         "data": {
           "price_current_entity": "Aktueller Strompreis",
-          "price_series_entity": "Strompreis-Reihe mit today/tomorrow",
+          "price_series_entity": "Strompreis-Reihe mit today/tomorrow (optional)",
           "price_unit": "Einheit der Strompreise",
           "forecast_today_entity": "Solcast Prognose heute",
           "forecast_tomorrow_entity": "Solcast Prognose morgen",
