@@ -11,6 +11,7 @@ from .coordinator import SMAAkkuCoordinator
 
 PLATFORMS: tuple[Platform, ...] = (
     Platform.SENSOR,
+    Platform.BINARY_SENSOR,
     Platform.NUMBER,
     Platform.SELECT,
     Platform.SWITCH,
