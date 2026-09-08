@@ -49,8 +49,6 @@ class StrategyInput:
     charge_ceiling_active: bool
     charge_ceiling_max_soc: float | None
     balancing_mode: str = "aus"
-    ev_pause_enabled: bool = False
-    ev_fast_charge_active: bool = False
     surplus_70_active: bool = False
     surplus_ac_active: bool = False
     surplus_veto_active: bool = False
@@ -62,10 +60,6 @@ class StrategyDecision:
     reason: str
 
 
-def _ev_blocking(value: StrategyInput) -> bool:
-    return value.ev_pause_enabled and value.ev_fast_charge_active
-
-
 def _charge_window_ok(value: StrategyInput) -> bool:
     return (
         value.min_price_before_peak_ct is None
@@ -75,7 +69,7 @@ def _charge_window_ok(value: StrategyInput) -> bool:
 
 
 def decide_strategy(value: StrategyInput) -> StrategyDecision:
-    """Mirror the upstream first-match ``choose`` chain."""
+    """Mirror the upstream first-match chain without optional EV support."""
     if not value.master_enabled:
         return StrategyDecision(MODE_PAUSE, "Fail-safe: Opti-Automatik aus")
     if not value.core_valid:
@@ -84,7 +78,6 @@ def decide_strategy(value: StrategyInput) -> StrategyDecision:
     score = value.forecast_score
     tomorrow = value.forecast_score_tomorrow
     price = value.price_level
-    ev = _ev_blocking(value)
     stopband = 0.0 if value.current_mode == MODE_GRID_CHARGE else 3.0
     reserve_band = 5.0 if value.current_mode == MODE_CHARGE_ONLY else 3.0
 
@@ -100,10 +93,7 @@ def decide_strategy(value: StrategyInput) -> StrategyDecision:
         and value.current_price_ct < value.feed_in_tariff_ct
         and _charge_window_ok(value)
     ):
-        return StrategyDecision(
-            MODE_GRID_CHARGE,
-            f"Negativpreis-Laden ({value.current_price_ct:g}ct < EEG {value.feed_in_tariff_ct:g}ct)",
-        )
+        return StrategyDecision(MODE_GRID_CHARGE, f"Negativpreis-Laden ({value.current_price_ct:g}ct < EEG {value.feed_in_tariff_ct:g}ct)")
 
     if (
         value.forecast_grid_charge_enabled
@@ -115,12 +105,9 @@ def decide_strategy(value: StrategyInput) -> StrategyDecision:
         and value.peak_price_avg_ct - value.current_price_ct >= value.grid_charge_spread_ct
         and _charge_window_ok(value)
     ):
-        return StrategyDecision(
-            MODE_GRID_CHARGE,
-            f"Peak-Vorladen (Spread {value.peak_price_avg_ct - value.current_price_ct:.1f}ct, bis {value.peak_reserve_soc:g}%)",
-        )
+        return StrategyDecision(MODE_GRID_CHARGE, f"Peak-Vorladen (Spread {value.peak_price_avg_ct - value.current_price_ct:.1f}ct, bis {value.peak_reserve_soc:g}%)")
 
-    if value.peak_reserve_active and price == "VERY_EXPENSIVE" and not ev:
+    if value.peak_reserve_active and price == "VERY_EXPENSIVE":
         return StrategyDecision(MODE_DISCHARGE_ONLY, "Peak-Leiter L1 (VE entladen)")
 
     if (
@@ -128,86 +115,33 @@ def decide_strategy(value: StrategyInput) -> StrategyDecision:
         and price == "EXPENSIVE"
         and value.peak_reserve_ve_soc is not None
         and value.soc > value.peak_reserve_ve_soc + reserve_band
-        and not ev
     ):
-        return StrategyDecision(
-            MODE_DISCHARGE_ONLY,
-            f"Peak-Leiter L2 (EXP entladen, ueber VE-Reserve {value.peak_reserve_ve_soc:g}%)",
-        )
+        return StrategyDecision(MODE_DISCHARGE_ONLY, f"Peak-Leiter L2 (EXP entladen, ueber VE-Reserve {value.peak_reserve_ve_soc:g}%)")
 
     if value.balancing_mode == "pv":
         return StrategyDecision(MODE_CHARGE_ONLY, "Balancing-Watchdog (PV-Vollladung)")
     if value.balancing_mode == "netz":
         return StrategyDecision(MODE_GRID_CHARGE, "Balancing-Watchdog (Netz-Vollladung)")
 
-    ceiling_band = 3.0 if (
-        value.charge_ceiling_active and value.charge_ceiling_max_soc == value.max_soc
-    ) else 0.0
-    if not value.peak_reserve_active and not ev and value.soc >= value.max_soc - ceiling_band:
+    ceiling_band = 3.0 if value.charge_ceiling_active and value.charge_ceiling_max_soc == value.max_soc else 0.0
+    if not value.peak_reserve_active and value.soc >= value.max_soc - ceiling_band:
         return StrategyDecision(MODE_DISCHARGE_ONLY, "Ladedeckel (maxsoc erreicht)")
 
-    if (
-        value.forecast_grid_charge_enabled
-        and value.winter_charging_allowed
-        and score is not None
-        and tomorrow is not None
-        and value.soc < 20
-        and score < 3
-        and tomorrow < 3
-        and price in PRICE_TO_EXPENSIVE
-    ):
+    if value.forecast_grid_charge_enabled and value.winter_charging_allowed and score is not None and tomorrow is not None and value.soc < 20 and score < 3 and tomorrow < 3 and price in PRICE_TO_EXPENSIVE:
         return StrategyDecision(MODE_CHARGE_ONLY, "SOC<20 Prognose (heute+morgen schlecht)")
-
-    if (
-        value.forecast_grid_charge_enabled
-        and score is not None
-        and tomorrow is not None
-        and value.soc < 75
-        and score < 3
-        and tomorrow < 3
-        and price in PRICE_TO_NORMAL
-    ):
+    if value.forecast_grid_charge_enabled and score is not None and tomorrow is not None and value.soc < 75 and score < 3 and tomorrow < 3 and price in PRICE_TO_NORMAL:
         return StrategyDecision(MODE_CHARGE_ONLY, "SOC<75 Prognose (Preis bis NORMAL)")
-
-    if (
-        value.forecast_grid_charge_enabled
-        and value.winter_charging_allowed
-        and score is not None
-        and tomorrow is not None
-        and value.soc < 80
-        and score < 3
-        and tomorrow < 3
-        and price in PRICE_TO_EXPENSIVE
-    ):
+    if value.forecast_grid_charge_enabled and value.winter_charging_allowed and score is not None and tomorrow is not None and value.soc < 80 and score < 3 and tomorrow < 3 and price in PRICE_TO_EXPENSIVE:
         return StrategyDecision(MODE_CHARGE_ONLY, "SOC<80 Wintermodus")
-
-    if (
-        value.forecast_grid_charge_enabled
-        and score is not None
-        and value.soc < 15
-        and score < 3
-        and price in PRICE_TO_EXPENSIVE
-    ):
+    if value.forecast_grid_charge_enabled and score is not None and value.soc < 15 and score < 3 and price in PRICE_TO_EXPENSIVE:
         return StrategyDecision(MODE_CHARGE_ONLY, "SOC<15 Notfall")
-
-    if (
-        value.forecast_grid_charge_enabled
-        and score is not None
-        and value.soc < 45
-        and score < 3
-        and price in PRICE_CHEAP
-    ):
+    if value.forecast_grid_charge_enabled and score is not None and value.soc < 45 and score < 3 and price in PRICE_CHEAP:
         return StrategyDecision(MODE_CHARGE_ONLY, "SOC<45 sehr guenstig")
-
-    if ev:
-        return StrategyDecision(MODE_CHARGE_ONLY, "EV-Sperre (Schnellladung, Entladesperre)")
 
     if value.pv_surplus_charge_enabled and value.is_day and value.surplus_70_active and value.soc < 100:
         return StrategyDecision(MODE_DYNAMIC, "70% Ueberschuss (tag, entprellt)")
-
     if value.pv_surplus_charge_enabled and value.is_day and value.surplus_ac_active and value.soc < 100:
         return StrategyDecision(MODE_DYNAMIC, "AC Ueberschuss (tag, entprellt)")
-
     if value.soc > 99:
         return StrategyDecision(MODE_DYNAMIC, "Akku voll")
 
@@ -220,28 +154,12 @@ def decide_strategy(value: StrategyInput) -> StrategyDecision:
         and value.current_price_ct is not None
         and value.peak_price_ve_avg_ct - value.current_price_ct >= value.hold_spread_ct
     ):
-        return StrategyDecision(
-            MODE_CHARGE_ONLY,
-            f"Peak-Leiter L3 (halten fuer VE, Reserve {value.peak_reserve_ve_soc:g}%, Spread {value.peak_price_ve_avg_ct - value.current_price_ct:.1f}ct)",
-        )
+        return StrategyDecision(MODE_CHARGE_ONLY, f"Peak-Leiter L3 (halten fuer VE, Reserve {value.peak_reserve_ve_soc:g}%, Spread {value.peak_price_ve_avg_ct - value.current_price_ct:.1f}ct)")
 
-    if (
-        value.peak_reserve_active
-        and price in PRICE_TO_NORMAL
-        and value.peak_reserve_soc is not None
-        and value.soc <= value.peak_reserve_soc + reserve_band
-    ):
-        return StrategyDecision(
-            MODE_CHARGE_ONLY,
-            f"Peak-Leiter L4 (halten fuer Peaks, Reserve {value.peak_reserve_soc:g}%)",
-        )
+    if value.peak_reserve_active and price in PRICE_TO_NORMAL and value.peak_reserve_soc is not None and value.soc <= value.peak_reserve_soc + reserve_band:
+        return StrategyDecision(MODE_CHARGE_ONLY, f"Peak-Leiter L4 (halten fuer Peaks, Reserve {value.peak_reserve_soc:g}%)")
 
-    if (
-        value.pv_surplus_charge_enabled
-        and value.is_day
-        and value.surplus_veto_active
-        and value.soc < value.max_soc
-    ):
+    if value.pv_surplus_charge_enabled and value.is_day and value.surplus_veto_active and value.soc < value.max_soc:
         return StrategyDecision(MODE_DYNAMIC, f"Ueberschuss-Veto (sticht Ziel-SoC {value.target_soc:g}%)")
 
     if value.soc > value.min_soc and value.soc < value.target_soc - 3.0 and value.is_day:
