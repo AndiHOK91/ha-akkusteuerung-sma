@@ -114,8 +114,8 @@ class SMAAkkuCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         config_key: str,
         *,
         optional: bool = False,
-        default: float = 0.0,
-    ) -> float:
+        default: float | None = 0.0,
+    ) -> float | None:
         state = self._get_state(config_key, optional=optional)
         if state is None:
             return default
@@ -128,7 +128,9 @@ class SMAAkkuCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 f"Entität {state.entity_id} liefert keinen numerischen Wert: {state.state}"
             ) from err
 
-    def _price_to_ct(self, value: float) -> float:
+    def _price_to_ct(self, value: float | None) -> float | None:
+        if value is None:
+            return None
         if self.entry.data.get(CONF_PRICE_UNIT, PRICE_UNIT_EUR_KWH) == PRICE_UNIT_EUR_KWH:
             return value * 100.0
         return value
@@ -142,9 +144,11 @@ class SMAAkkuCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if isinstance(item, dict):
                 raw = item.get("total", item.get("price", item.get("value")))
             try:
-                result.append(self._price_to_ct(float(raw)))
+                converted = self._price_to_ct(float(raw))
             except (TypeError, ValueError):
                 continue
+            if converted is not None:
+                result.append(converted)
         return result
 
     def _forecast(self, config_key: str) -> tuple[float, float | None]:
@@ -178,32 +182,54 @@ class SMAAkkuCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             CONF_BATTERY_TEMP_ENTITY, optional=True, default=20.0
         )
         capacity = self._get_float(CONF_BATTERY_CAPACITY_ENTITY)
+        if soc is None or capacity is None:
+            raise UpdateFailed("SoC oder Batteriekapazität fehlt")
         if self.entry.data.get(CONF_BATTERY_CAPACITY_UNIT, CAPACITY_UNIT_WH) == CAPACITY_UNIT_WH:
             capacity /= 1000.0
 
         pv_power = self._get_float(CONF_PV_POWER_ENTITY)
         pv_generation = self._get_float(CONF_PV_GENERATION_ENTITY)
-        grid_export = max(0.0, self._get_float(CONF_GRID_EXPORT_ENTITY))
-        grid_import = max(0.0, self._get_float(CONF_GRID_IMPORT_ENTITY))
+        grid_export_raw = self._get_float(CONF_GRID_EXPORT_ENTITY)
+        grid_import_raw = self._get_float(CONF_GRID_IMPORT_ENTITY)
         house_consumption = self._get_float(CONF_HOUSE_CONSUMPTION_ENTITY)
-        current_price_ct = self._price_to_ct(self._get_float(CONF_PRICE_CURRENT_ENTITY))
+        charge_power = self._get_float(CONF_BATTERY_CHARGE_POWER_ENTITY)
+        discharge_power = self._get_float(CONF_BATTERY_DISCHARGE_POWER_ENTITY)
+        required_values = (
+            pv_power,
+            pv_generation,
+            grid_export_raw,
+            grid_import_raw,
+            house_consumption,
+            charge_power,
+            discharge_power,
+        )
+        if any(value is None for value in required_values):
+            raise UpdateFailed("Eine erforderliche Leistungsquelle fehlt")
+        grid_export = max(0.0, grid_export_raw)
+        grid_import = max(0.0, grid_import_raw)
+        battery_power = charge_power - discharge_power
 
-        price_series_state = self._get_state(CONF_PRICE_SERIES_ENTITY)
-        try:
-            price_series_current_ct = self._price_to_ct(float(price_series_state.state))
-        except (TypeError, ValueError) as err:
-            raise UpdateFailed(
-                f"Entität {price_series_state.entity_id} liefert keinen numerischen Wert"
-            ) from err
-        price_today = self._normalize_price_list(price_series_state.attributes.get("today"))
-        price_tomorrow = self._normalize_price_list(price_series_state.attributes.get("tomorrow"))
+        # Price sources are deliberately fail-closed, not coordinator-fatal.
+        # This mirrors upstream: price-dependent branches stop, while MinSOC,
+        # charge ceiling, balancing/PV and target-SoC safety can keep running.
+        current_price_ct = self._price_to_ct(
+            self._get_float(CONF_PRICE_CURRENT_ENTITY, optional=True, default=None)
+        )
+        price_series_state = self._get_state(CONF_PRICE_SERIES_ENTITY, optional=True)
+        price_series_current_ct: float | None = None
+        price_today: list[float] = []
+        price_tomorrow: list[float] = []
+        if price_series_state is not None:
+            try:
+                price_series_current_ct = self._price_to_ct(float(price_series_state.state))
+            except (TypeError, ValueError):
+                price_series_current_ct = None
+            price_today = self._normalize_price_list(price_series_state.attributes.get("today"))
+            price_tomorrow = self._normalize_price_list(price_series_state.attributes.get("tomorrow"))
 
         forecast_today, forecast_today_p10 = self._forecast(CONF_FORECAST_TODAY_ENTITY)
         forecast_tomorrow, forecast_tomorrow_p10 = self._forecast(CONF_FORECAST_TOMORROW_ENTITY)
         forecast_remaining, forecast_remaining_p10 = self._forecast(CONF_FORECAST_REMAINING_ENTITY)
-        charge_power = self._get_float(CONF_BATTERY_CHARGE_POWER_ENTITY)
-        discharge_power = self._get_float(CONF_BATTERY_DISCHARGE_POWER_ENTITY)
-        battery_power = charge_power - discharge_power
 
         now = dt_util.now()
         battery_average_30m_w = round(self._battery_mean_30m.add(now, battery_power))
@@ -324,8 +350,6 @@ class SMAAkkuCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         surplus_veto_active = self._surplus_veto.update(raw_veto, now, 60)
 
-        # Core balancing only: no BYD cell-spread trigger. The persistent state
-        # replaces upstream counter/input_datetime helpers.
         done_soc = float(self._setting("opti_balancing_done_soc", 98.5))
         balancing_changed = update_balancing_counters(
             self._balancing_state,
@@ -360,7 +384,7 @@ class SMAAkkuCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         calculated_charge_power = charge_power_w(
             soc=soc,
-            battery_temp_c=battery_temp,
+            battery_temp_c=battery_temp if battery_temp is not None else 20.0,
             battery_capacity_kwh=capacity,
             max_charge_power_w=float(
                 self._setting("akkusteuerung_max_ladestaerke", 0.0)
@@ -432,7 +456,11 @@ class SMAAkkuCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self._settings()["akkusteuerung_modus"] = decision.mode
 
-        if soc > 99 and bool(self._setting("hausakku_aus_netz_laden", False)):
+        if (
+            soc > 99
+            and current_price_ct is not None
+            and bool(self._setting("hausakku_aus_netz_laden", False))
+        ):
             self._settings()["hausakku_aus_netz_laden"] = False
             self._settings()["ladepreis"] = current_price_ct / 100.0
 
