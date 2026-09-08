@@ -10,13 +10,17 @@
           "battery_temp_entity": "Batterietemperatur (optional)",
           "battery_capacity_entity": "Batterie-Nennkapazität",
           "battery_capacity_unit": "Einheit der Batterie-Nennkapazität",
-          "pv_power_entity": "PV-Leistung / AC-Ausgangsleistung",
-          "pv_generation_entity": "PV-Erzeugung / DC-Gesamtleistung",
+          "pv_power_entity": "PV-Leistung (AC-Ausgangsleistung)",
+          "pv_generation_entity": "PV-Erzeugung (DC-Eingangsleistung / Gesamterzeugung)",
           "grid_export_entity": "Netzeinspeisung",
           "grid_import_entity": "Netzbezug",
           "house_consumption_entity": "Hausverbrauch",
           "battery_charge_power_entity": "Batterie-Ladeleistung",
           "battery_discharge_power_entity": "Batterie-Entladeleistung"
+        },
+        "data_description": {
+          "pv_power_entity": "Aktuelle AC-Ausgangsleistung des Wechselrichters in W. Gemeint ist die Leistung auf der AC-Seite nach der DC/AC-Wandlung. Im Optic00-Projekt ist dies sensor.opti_pv_power_w.",
+          "pv_generation_entity": "Aktuelle PV-Erzeugung auf der DC-Seite bzw. DC-Eingangsleistung/Gesamterzeugung in W. Im Optic00-Projekt ist dies sensor.opti_pv_generation_w. Bei Anlagen ohne separaten DC-Leistungssensor darf hier dieselbe Entität wie bei der PV-Leistung (AC) gewählt werden."
         }
       },
       "market": {
