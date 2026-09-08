@@ -5,10 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from homeassistant.components.binary_sensor import (
-    BinarySensorEntity,
-    BinarySensorEntityDescription,
-)
+from homeassistant.components.binary_sensor import BinarySensorEntity, BinarySensorEntityDescription
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -20,8 +17,6 @@ from .coordinator import SMAAkkuCoordinator
 
 @dataclass(frozen=True, kw_only=True)
 class OptiBinaryDescription(BinarySensorEntityDescription):
-    """Describe one migrated Opti binary sensor."""
-
     data_key: str
     attribute_keys: dict[str, str] | None = None
 
@@ -51,6 +46,41 @@ BINARY_SENSORS: tuple[OptiBinaryDescription, ...] = (
         icon="mdi:battery-lock",
         attribute_keys={"maxsoc": "charge_ceiling_max_soc"},
     ),
+    OptiBinaryDescription(
+        key="surplus_70_active",
+        name="Opti Ueberschuss 70 Aktiv",
+        data_key="surplus_70_active",
+        icon="mdi:transmission-tower-export",
+        attribute_keys={
+            "export_ohne_akku_w": "surplus_70_without_battery_w",
+            "grenze_ein_w": "surplus_70_threshold_on_w",
+            "grenze_aus_w": "surplus_70_threshold_off_w",
+        },
+    ),
+    OptiBinaryDescription(
+        key="surplus_ac_active",
+        name="Opti Ueberschuss AC Aktiv",
+        data_key="surplus_ac_active",
+        icon="mdi:sine-wave",
+        attribute_keys={
+            "ac_ohne_akku_w": "surplus_ac_without_battery_w",
+            "grenze_ein_w": "surplus_ac_threshold_on_w",
+            "grenze_aus_w": "surplus_ac_threshold_off_w",
+        },
+    ),
+    OptiBinaryDescription(
+        key="surplus_veto_active",
+        name="Opti Ueberschuss Veto Aktiv",
+        data_key="surplus_veto_active",
+        icon="mdi:battery-plus-variant",
+        attribute_keys={
+            "export_ohne_akku_w": "surplus_veto_without_battery_w",
+            "grenze_ein_w": "surplus_veto_threshold_on_w",
+            "grenze_aus_w": "surplus_veto_threshold_off_w",
+            "knappheit_faktor": "surplus_veto_scarcity_factor",
+            "knappheit_gate_offen": "surplus_veto_scarcity_gate_open",
+        },
+    ),
 )
 
 
@@ -59,7 +89,6 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Create migrated Opti binary sensors."""
     coordinator: SMAAkkuCoordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
     async_add_entities(
         OptiBinarySensor(coordinator, entry, description)
@@ -68,8 +97,6 @@ async def async_setup_entry(
 
 
 class OptiBinarySensor(CoordinatorEntity[SMAAkkuCoordinator], BinarySensorEntity):
-    """Representation of one migrated Opti binary decision sensor."""
-
     entity_description: OptiBinaryDescription
     _attr_has_entity_name = False
 
@@ -85,14 +112,12 @@ class OptiBinarySensor(CoordinatorEntity[SMAAkkuCoordinator], BinarySensorEntity
 
     @property
     def is_on(self) -> bool | None:
-        """Return the latest calculated state."""
         if not self.coordinator.data:
             return None
         return bool(self.coordinator.data.get(self.entity_description.data_key))
 
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
-        """Expose original diagnostic attributes where applicable."""
         mapping = self.entity_description.attribute_keys
         if not mapping or not self.coordinator.data:
             return None
