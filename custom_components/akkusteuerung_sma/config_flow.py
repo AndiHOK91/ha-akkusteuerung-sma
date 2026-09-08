@@ -14,6 +14,9 @@ from .const import (
     CONF_GRID_POWER_ENTITY,
     CONF_HOST,
     CONF_HOUSE_CONSUMPTION_ENTITY,
+    CONF_INVERTER_LIMIT_ENTITY,
+    CONF_INVERTER_STATUS_ENTITY,
+    CONF_INVERTER_TEMPERATURE_ENTITY,
     CONF_MODBUS_ID,
     CONF_PORT,
     CONF_PV_POWER_ENTITY,
@@ -29,12 +32,16 @@ class SMAAkkuConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
     async def async_step_user(self, user_input=None):
-        """Handle user setup."""
         if user_input:
             return self.async_create_entry(
                 title="SMA Akku Steuerung",
                 data=user_input,
             )
+
+        power_sensor = selector.EntitySelectorConfig(
+            domain="sensor",
+            device_class="power",
+        )
 
         return self.async_show_form(
             step_id="user",
@@ -44,40 +51,21 @@ class SMAAkkuConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     vol.Optional(CONF_PORT, default=DEFAULT_PORT): int,
                     vol.Optional(CONF_MODBUS_ID, default=DEFAULT_MODBUS_ID): int,
                     vol.Required(CONF_BATTERY_CAPACITY_ENTITY): selector.EntitySelector(
-                        selector.EntitySelectorConfig(
-                            domain="sensor",
-                            device_class="energy",
-                        )
+                        selector.EntitySelectorConfig(domain="sensor")
                     ),
                     vol.Required(CONF_BATTERY_SOC_ENTITY): selector.EntitySelector(
-                        selector.EntitySelectorConfig(
-                            domain="sensor",
-                            device_class="battery",
-                        )
+                        selector.EntitySelectorConfig(domain="sensor")
                     ),
-                    vol.Required(CONF_BATTERY_POWER_ENTITY): selector.EntitySelector(
-                        selector.EntitySelectorConfig(
-                            domain="sensor",
-                            device_class="power",
-                        )
+                    vol.Required(CONF_BATTERY_POWER_ENTITY): selector.EntitySelector(power_sensor),
+                    vol.Required(CONF_PV_POWER_ENTITY): selector.EntitySelector(power_sensor),
+                    vol.Required(CONF_GRID_POWER_ENTITY): selector.EntitySelector(power_sensor),
+                    vol.Required(CONF_HOUSE_CONSUMPTION_ENTITY): selector.EntitySelector(power_sensor),
+                    vol.Required(CONF_INVERTER_LIMIT_ENTITY): selector.EntitySelector(power_sensor),
+                    vol.Required(CONF_INVERTER_STATUS_ENTITY): selector.EntitySelector(
+                        selector.EntitySelectorConfig(domain="sensor")
                     ),
-                    vol.Required(CONF_PV_POWER_ENTITY): selector.EntitySelector(
-                        selector.EntitySelectorConfig(
-                            domain="sensor",
-                            device_class="power",
-                        )
-                    ),
-                    vol.Required(CONF_GRID_POWER_ENTITY): selector.EntitySelector(
-                        selector.EntitySelectorConfig(
-                            domain="sensor",
-                            device_class="power",
-                        )
-                    ),
-                    vol.Required(CONF_HOUSE_CONSUMPTION_ENTITY): selector.EntitySelector(
-                        selector.EntitySelectorConfig(
-                            domain="sensor",
-                            device_class="power",
-                        )
+                    vol.Required(CONF_INVERTER_TEMPERATURE_ENTITY): selector.EntitySelector(
+                        selector.EntitySelectorConfig(domain="sensor")
                     ),
                 }
             ),
