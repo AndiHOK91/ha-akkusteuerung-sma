@@ -4,11 +4,17 @@
     "step": {
       "user": {
         "title": "SMA Akku Steuerung einrichten",
+        "description": "Wähle die vorhandenen Home-Assistant-Entitäten deiner SMA STP 10 SE / BYD HVS Anlage aus.",
         "data": {
           "host": "SMA Wechselrichter IP-Adresse",
           "port": "Modbus Port",
           "modbus_id": "Modbus Geräte-ID",
-          "battery_capacity": "Batteriekapazität (kWh)"
+          "battery_capacity_entity": "Batteriekapazität",
+          "battery_soc_entity": "Batterie-Ladezustand (SOC)",
+          "battery_power_entity": "Batterieleistung",
+          "pv_power_entity": "PV-Leistung",
+          "grid_power_entity": "Netzleistung",
+          "house_consumption_entity": "Hausverbrauch"
         }
       }
     }
