@@ -31,7 +31,6 @@ SWITCHES: tuple[OptiSwitchDefinition, ...] = (
     OptiSwitchDefinition("speicher_eco_netzladen", "Speicher Eco Netzladen", "mdi:leaf"),
     OptiSwitchDefinition("opti_prognose_netzladen", "Opti Reserve-halten bei schlechter Prognose", "mdi:transmission-tower"),
     OptiSwitchDefinition("opti_pv_ueberschuss_ladung", "Opti PV-Überschussladung erlauben", "mdi:solar-power"),
-    OptiSwitchDefinition("opti_ev_akku_pause", "Opti EV Akku-Pause", "mdi:car-electric"),
     OptiSwitchDefinition("opti_balancing_netzladen", "Opti Balancing darf ans Netz", "mdi:battery-heart-variant"),
     OptiSwitchDefinition("opti_balancing_abschluss_gueltig", "Opti Balancing Abschluss gültig", "mdi:calendar-check"),
 )
