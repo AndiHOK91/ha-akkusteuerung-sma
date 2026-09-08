@@ -45,6 +45,7 @@ from .derived import (
 )
 from .peak import calculate_peak_reserve, charge_ceiling_active, pv_rich_day
 from .strategy import MODE_AUTO, StrategyInput, decide_strategy
+from .surplus import DebouncedBoolean, surplus_70_raw, surplus_ac_raw, surplus_veto_raw
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -64,6 +65,9 @@ class SMAAkkuCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._pv_rich_day = False
         self._charge_ceiling_active = False
         self._charge_ceiling_max_soc: float | None = None
+        self._surplus_70 = DebouncedBoolean()
+        self._surplus_ac = DebouncedBoolean()
+        self._surplus_veto = DebouncedBoolean()
 
     def _runtime(self) -> dict[str, Any]:
         return self.hass.data.get(DOMAIN, {}).get(self.entry.entry_id, {})
@@ -162,8 +166,8 @@ class SMAAkkuCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         grid_export = max(0.0, self._get_float(CONF_GRID_EXPORT_ENTITY))
         grid_import = max(0.0, self._get_float(CONF_GRID_IMPORT_ENTITY))
         house_consumption = self._get_float(CONF_HOUSE_CONSUMPTION_ENTITY)
-
         current_price_ct = self._price_to_ct(self._get_float(CONF_PRICE_CURRENT_ENTITY))
+
         price_series_state = self._get_state(CONF_PRICE_SERIES_ENTITY)
         try:
             price_series_current_ct = self._price_to_ct(float(price_series_state.state))
@@ -177,16 +181,11 @@ class SMAAkkuCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         forecast_today, forecast_today_p10 = self._forecast(CONF_FORECAST_TODAY_ENTITY)
         forecast_tomorrow, forecast_tomorrow_p10 = self._forecast(CONF_FORECAST_TOMORROW_ENTITY)
         forecast_remaining, forecast_remaining_p10 = self._forecast(CONF_FORECAST_REMAINING_ENTITY)
-
         charge_power = self._get_float(CONF_BATTERY_CHARGE_POWER_ENTITY)
         discharge_power = self._get_float(CONF_BATTERY_DISCHARGE_POWER_ENTITY)
         battery_power = charge_power - discharge_power
 
-        # Upstream prefers the 60-minute statistics mean and falls back to the
-        # current value. Until the statistics entity is migrated, use that exact
-        # documented fallback.
         house_average_w = house_consumption
-
         optimism = float(self._setting("opti_forecast_optimismus", 0.0))
         effective_remaining = effective_forecast_remaining(
             forecast_remaining, forecast_remaining_p10, optimism
@@ -236,7 +235,6 @@ class SMAAkkuCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             tomorrow_score=float(tomorrow_score),
             previous_state=self._pv_rich_day,
         )
-
         peak_result = calculate_peak_reserve(
             now=now,
             next_rising=next_rising,
@@ -262,6 +260,40 @@ class SMAAkkuCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self._charge_ceiling_max_soc = max_soc
 
+        threshold_70 = float(self._setting("akkusteuerung_wr_70proz_ueberschuss_grenze", 0.0))
+        raw_70, surplus_70_w, threshold_70_off = surplus_70_raw(
+            grid_export_w=grid_export,
+            battery_power_w=battery_power,
+            threshold_on_w=threshold_70,
+            was_on=self._surplus_70.state,
+        )
+        surplus_70_active = self._surplus_70.update(raw_70, now, 30)
+
+        threshold_ac = float(self._setting("akkusteuerung_wr_ac_ueberschuss_grenze", 0.0))
+        raw_ac, surplus_ac_w, threshold_ac_off = surplus_ac_raw(
+            pv_power_w=pv_power,
+            battery_power_w=battery_power,
+            threshold_on_w=threshold_ac,
+            was_on=self._surplus_ac.state,
+        )
+        surplus_ac_active = self._surplus_ac.update(raw_ac, now, 30)
+
+        veto_on = float(self._setting("akkusteuerung_ueberschuss_veto_grenze", 200.0))
+        veto_off = float(self._setting("akkusteuerung_ueberschuss_veto_aus_grenze", 100.0))
+        scarcity_factor = float(self._setting("akkusteuerung_ueberschuss_veto_knappheit_faktor", 1.0))
+        raw_veto, surplus_veto_w, scarcity_open = surplus_veto_raw(
+            grid_export_w=grid_export,
+            grid_import_w=grid_import,
+            battery_power_w=battery_power,
+            threshold_on_w=veto_on,
+            threshold_off_w=veto_off,
+            forecast_surplus_kwh=score_result.pv_surplus_kwh,
+            needed_full_kwh=score_result.needed_full_kwh,
+            scarcity_factor=scarcity_factor,
+            was_on=self._surplus_veto.state,
+        )
+        surplus_veto_active = self._surplus_veto.update(raw_veto, now, 60)
+
         calculated_charge_power = charge_power_w(
             soc=soc,
             battery_temp_c=battery_temp,
@@ -270,7 +302,6 @@ class SMAAkkuCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             forecast_score_value=score_result.score,
             balancing_active=False,
         )
-
         level, percentile, price_count = price_level(
             current_price_ct, [*price_today, *price_tomorrow]
         )
@@ -315,20 +346,16 @@ class SMAAkkuCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 peak_price_ve_avg_ct=peak_result.peak_price_ve_avg_ct,
                 charge_ceiling_active=self._charge_ceiling_active,
                 charge_ceiling_max_soc=max_soc,
-                # These optional upstream features are ported next. Keeping them
-                # false here is fail-safe and avoids inventing replacement logic.
                 balancing_mode="aus",
                 ev_pause_enabled=bool(self._setting("opti_ev_akku_pause", False)),
                 ev_fast_charge_active=False,
-                surplus_70_active=False,
-                surplus_ac_active=False,
-                surplus_veto_active=False,
+                surplus_70_active=surplus_70_active,
+                surplus_ac_active=surplus_ac_active,
+                surplus_veto_active=surplus_veto_active,
             )
         )
         self._settings()["akkusteuerung_modus"] = decision.mode
 
-        # Upstream cleanup: when the manual grid-charge booster reaches a full
-        # battery it is cleared and the paid price is remembered.
         if soc > 99 and bool(self._setting("hausakku_aus_netz_laden", False)):
             self._settings()["hausakku_aus_netz_laden"] = False
             self._settings()["ladepreis"] = current_price_ct / 100.0
@@ -356,11 +383,7 @@ class SMAAkkuCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "simultaneous_charge_discharge": charge_power > 0 and discharge_power > 0,
             "forecast_effective_remaining_kwh": effective_remaining,
             "forecast_effective_median_kwh": forecast_remaining,
-            "forecast_effective_p10_kwh": (
-                forecast_remaining_p10
-                if forecast_remaining_p10 is not None and forecast_remaining_p10 > 0
-                else forecast_remaining
-            ),
+            "forecast_effective_p10_kwh": forecast_remaining_p10 if forecast_remaining_p10 is not None and forecast_remaining_p10 > 0 else forecast_remaining,
             "forecast_effective_alpha": max(0.0, min(100.0, optimism)) / 100.0,
             "forecast_score_tomorrow": tomorrow_score,
             "forecast_score": score_result.score,
@@ -402,6 +425,20 @@ class SMAAkkuCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "charge_ceiling_max_soc": max_soc,
             "winter_charging_allowed": True,
             "sun_above_horizon": sun_above_horizon,
+            "surplus_70_active": surplus_70_active,
+            "surplus_70_without_battery_w": round(surplus_70_w),
+            "surplus_70_threshold_on_w": threshold_70,
+            "surplus_70_threshold_off_w": threshold_70_off,
+            "surplus_ac_active": surplus_ac_active,
+            "surplus_ac_without_battery_w": round(surplus_ac_w),
+            "surplus_ac_threshold_on_w": threshold_ac,
+            "surplus_ac_threshold_off_w": threshold_ac_off,
+            "surplus_veto_active": surplus_veto_active,
+            "surplus_veto_without_battery_w": round(surplus_veto_w),
+            "surplus_veto_threshold_on_w": veto_on,
+            "surplus_veto_threshold_off_w": veto_off,
+            "surplus_veto_scarcity_factor": scarcity_factor,
+            "surplus_veto_scarcity_gate_open": scarcity_open,
             "strategy_mode": decision.mode,
             "strategy_reason": decision.reason,
             "strategy_core_valid": core_valid,
