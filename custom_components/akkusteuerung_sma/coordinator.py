@@ -49,6 +49,7 @@ from .derived import (
     target_soc,
 )
 from .peak import calculate_peak_reserve, charge_ceiling_active, pv_rich_day
+from .statistics import RollingMean
 from .storage import BalancingStorage
 from .strategy import MODE_AUTO, StrategyInput, decide_strategy
 from .surplus import DebouncedBoolean, surplus_70_raw, surplus_ac_raw, surplus_veto_raw
@@ -83,6 +84,8 @@ class SMAAkkuCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._surplus_70 = DebouncedBoolean()
         self._surplus_ac = DebouncedBoolean()
         self._surplus_veto = DebouncedBoolean()
+        self._battery_mean_30m = RollingMean(timedelta(minutes=30), 360)
+        self._house_mean_60m = RollingMean(timedelta(minutes=60), 1500)
 
     def _runtime(self) -> dict[str, Any]:
         return self.hass.data.get(DOMAIN, {}).get(self.entry.entry_id, {})
@@ -202,7 +205,10 @@ class SMAAkkuCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         discharge_power = self._get_float(CONF_BATTERY_DISCHARGE_POWER_ENTITY)
         battery_power = charge_power - discharge_power
 
-        house_average_w = house_consumption
+        now = dt_util.now()
+        battery_average_30m_w = round(self._battery_mean_30m.add(now, battery_power))
+        house_average_w = round(self._house_mean_60m.add(now, house_consumption))
+
         optimism = float(self._setting("opti_forecast_optimismus", 0.0))
         effective_remaining = effective_forecast_remaining(
             forecast_remaining, forecast_remaining_p10, optimism
@@ -214,7 +220,6 @@ class SMAAkkuCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             optimism,
         )
 
-        now = dt_util.now()
         next_setting = self._sun_datetime("next_setting")
         next_rising = self._sun_datetime("next_rising")
         sun_state = self.hass.states.get("sun.sun")
@@ -440,6 +445,10 @@ class SMAAkkuCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "grid_export_w": grid_export,
             "grid_import_w": grid_import,
             "house_consumption_w": house_consumption,
+            "house_consumption_60min_w": house_average_w,
+            "house_consumption_60min_samples": self._house_mean_60m.count,
+            "battery_load_30min_w": battery_average_30m_w,
+            "battery_load_30min_samples": self._battery_mean_30m.count,
             "price_current_ct_kwh": current_price_ct,
             "price_series_current_ct_kwh": price_series_current_ct,
             "price_series_today": price_today,
