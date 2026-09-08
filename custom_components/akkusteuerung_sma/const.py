@@ -1,7 +1,7 @@
 """Constants for SMA Akku Steuerung."""
 
 DOMAIN = "akkusteuerung_sma"
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 DEFAULT_NAME = "SMA Akku Steuerung"
 
 # Canonical source mapping from opti_mapping.example.yaml
