@@ -53,6 +53,7 @@ class SMAAkkuConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
     def __init__(self) -> None:
+        super().__init__()
         self._config_data: dict[str, Any] = {}
 
     async def async_step_user(self, user_input=None):
@@ -103,7 +104,7 @@ class SMAAkkuConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=vol.Schema(
                 {
                     vol.Required(CONF_PRICE_CURRENT_ENTITY): _sensor_selector(),
-                    vol.Required(CONF_PRICE_SERIES_ENTITY): _sensor_selector(),
+                    vol.Optional(CONF_PRICE_SERIES_ENTITY): _sensor_selector(),
                     vol.Required(
                         CONF_PRICE_UNIT,
                         default=PRICE_UNIT_EUR_KWH,
