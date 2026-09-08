@@ -5,6 +5,7 @@ from __future__ import annotations
 import voluptuous as vol
 
 from homeassistant import config_entries
+from homeassistant.helpers import selector
 
 from .const import (
     CONF_BATTERY_CAPACITY,
@@ -42,6 +43,36 @@ class SMAAkkuConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_BATTERY_CAPACITY,
                         default=DEFAULT_BATTERY_CAPACITY,
                     ): vol.Coerce(float),
+                    vol.Required("battery_soc_entity"): selector.EntitySelector(
+                        selector.EntitySelectorConfig(
+                            domain="sensor",
+                            device_class="battery",
+                        )
+                    ),
+                    vol.Required("battery_power_entity"): selector.EntitySelector(
+                        selector.EntitySelectorConfig(
+                            domain="sensor",
+                            device_class="power",
+                        )
+                    ),
+                    vol.Required("pv_power_entity"): selector.EntitySelector(
+                        selector.EntitySelectorConfig(
+                            domain="sensor",
+                            device_class="power",
+                    )
+                    ),
+                    vol.Required("grid_power_entity"): selector.EntitySelector(
+                        selector.EntitySelectorConfig(
+                            domain="sensor",
+                            device_class="power",
+                        )
+                    ),
+                    vol.Required("house_consumption_entity"): selector.EntitySelector(
+                        selector.EntitySelectorConfig(
+                            domain="sensor",
+                            device_class="power",
+                        )
+                    ),
                 }
             ),
         )
