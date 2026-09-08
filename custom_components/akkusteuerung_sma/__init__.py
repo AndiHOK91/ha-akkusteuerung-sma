@@ -8,6 +8,7 @@ from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN
 from .coordinator import SMAAkkuCoordinator
+from .storage import BalancingStorage
 
 PLATFORMS: tuple[Platform, ...] = (
     Platform.SENSOR,
@@ -20,20 +21,27 @@ PLATFORMS: tuple[Platform, ...] = (
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up the integration from a config entry."""
-    # Runtime settings are populated by the migrated helper entities. Keeping
-    # them here avoids coupling the strategy to generated entity_ids.
+    storage = BalancingStorage(hass, entry.entry_id)
+    balancing_state = await storage.async_load()
+
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
         "settings": {},
+        "balancing_storage": storage,
+        "balancing_state": balancing_state,
     }
 
-    coordinator = SMAAkkuCoordinator(hass, entry)
+    coordinator = SMAAkkuCoordinator(
+        hass,
+        entry,
+        balancing_state=balancing_state,
+        balancing_storage=storage,
+    )
     hass.data[DOMAIN][entry.entry_id]["coordinator"] = coordinator
     await coordinator.async_config_entry_first_refresh()
 
-    # Forwarding the helper platforms restores their persistent states and
-    # mirrors them into the runtime settings store. Refresh once afterwards so
-    # the calculated Opti sensors immediately use those restored values instead
-    # of the first-install minima used during the bootstrap refresh.
+    # Helper platforms restore their persistent states and mirror them into the
+    # runtime settings store. Refresh once afterwards so calculations use those
+    # restored values immediately.
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     await coordinator.async_request_refresh()
 
