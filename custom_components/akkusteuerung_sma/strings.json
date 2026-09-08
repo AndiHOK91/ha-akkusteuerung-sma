@@ -19,8 +19,8 @@
           "battery_discharge_power_entity": "Batterie-Entladeleistung"
         },
         "data_description": {
-          "pv_power_entity": "Aktuelle AC-Ausgangsleistung des Wechselrichters in W. Gemeint ist die Leistung auf der AC-Seite nach der DC/AC-Wandlung. Im Optic00-Projekt ist dies sensor.opti_pv_power_w.",
-          "pv_generation_entity": "Aktuelle PV-Erzeugung auf der DC-Seite bzw. DC-Eingangsleistung/Gesamterzeugung in W. Im Optic00-Projekt ist dies sensor.opti_pv_generation_w. Bei Anlagen ohne separaten DC-Leistungssensor darf hier dieselbe Entität wie bei der PV-Leistung (AC) gewählt werden."
+          "pv_power_entity": "Aktuelle AC-Ausgangsleistung des Wechselrichters in Watt (W), also die Leistung auf der AC-Seite nach der DC/AC-Wandlung. Erwarteter Wertebereich: >= 0 W, typischerweise von 0 W bis ungefähr zur AC-Nennleistung des Wechselrichters. Beispielbezeichnung aus der Optic00-Doku: sensor.sma_pv_power. Im Opti-Layer wird daraus sensor.opti_pv_power_w.",
+          "pv_generation_entity": "Aktuelle PV-Erzeugung auf der DC-Seite bzw. DC-Eingangsleistung/Gesamterzeugung in Watt (W). Erwarteter Wertebereich: >= 0 W; der DC-Wert kann wegen Wandlungsverlusten oder AC-Begrenzung zeitweise etwas höher als die AC-Ausgangsleistung sein. Beispielbezeichnung aus der Optic00-Doku: sensor.sma_pv_generation. Im Opti-Layer wird daraus sensor.opti_pv_generation_w. Wenn deine Anlage keinen separaten DC-Leistungssensor bereitstellt, darf hier dieselbe Entität wie bei der PV-Leistung (AC) gewählt werden."
         }
       },
       "market": {
