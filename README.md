@@ -24,14 +24,31 @@ Die Integration befindet sich noch in der Migration. Bereits umgesetzt sind:
 - Canonical-Sensoren mit den ursprünglichen Namen `sensor.opti_*`
 - persistente Number-, Select- und Switch-Helfer aus `packages/sma_helpers.yaml`
 - Kernlogik für Forecast, Ziel-SoC, Preisniveau, Peak-Reserve und Überschusssteuerung
+- 30-Minuten-Batterieleistungs- und 60-Minuten-Hausverbrauchsmittelwerte aus `packages/sma_statistik.yaml`
+- persistenter Balancing-/Deep-Charge-Watchdog ohne BYD-Zellspreizungs-Erweiterung
 - Kern-Strategie mit Fail-safe und Prioritätsleiter
 - HACS-Grundstruktur
+
+### `packages/sma_templates.yaml`
+
+Der Kern aus `packages/sma_templates.yaml` wird **nicht noch einmal als Legacy-Template-Satz erzeugt**, weil die entsprechenden Funktionen bereits nativ in der Integration vorhanden sind:
+
+- `House Battery Runtime Raw` → durch die native Laufzeitberechnung ersetzt
+- `Akkusteuerung Dynamische Ladestaerke` → durch `sensor.opti_charge_power_w` ersetzt
+- `PV Forecast Bewertung Heute/Morgen` → fachlich durch `sensor.opti_forecast_score` und `sensor.opti_forecast_score_tomorrow` ersetzt
+- `Akku Target SoC Intelligent` → durch `sensor.opti_target_soc` ersetzt
+- `Ueberschuss PV Watt` → durch Canonical-Netzeinspeisung und die nativen Überschuss-Gates ersetzt
+- `Akku Net Verfügbare Energie` und `Verbleibende Sonnenstunden` → bereits Bestandteil der Ziel-SoC-/Forecast-Berechnung und deren Diagnoseattribute
+- `Strompreis Niveau` → durch `sensor.opti_price_level` ersetzt
+
+Die beiden im Original ausdrücklich nur für **Observability/Vorbereitung** vorgesehenen Sensoren `Akku Soll-SoC Kurve` und `Akkusteuerung Dynamische Ladestaerke (P-Regler)` werden nicht übernommen, da sie weder von Strategie noch Adapter konsumiert werden.
+
+Die Abregelungs-Sensoren `Akku MaxGen Erzeugungsgrenze vor Abregelung` und `Akku Abregelungsleistung` werden ebenfalls nicht in den Kern aufgenommen. Sie benötigen zusätzliche, anlagenspezifische Eingänge für WR-Leistungslimit und installierte PV-Peakleistung und sind für die aktuelle Kernstrategie nicht erforderlich.
 
 Noch nicht vollständig abgeschlossen sind insbesondere:
 
 - die restliche Paritätsprüfung von `packages/opti_derived.yaml`
 - die restliche Paritätsprüfung von `automations/opti_strategie.yaml`
-- persistente Balancing-Counter/Automationen
 - abschließende Home-Assistant- und Adapter-Integrationstests
 
 **Die Integration ist deshalb noch nicht für produktive Akku-Steuerung freigegeben.**
@@ -57,12 +74,18 @@ Die Integration erzeugt unter anderem die vom Originalprojekt erwarteten Entitä
 - `sensor.opti_grid_export_w`
 - `sensor.opti_grid_import_w`
 - `sensor.opti_house_consumption_w`
+- `sensor.opti_house_consumption_60min_w`
 - `sensor.opti_price_current_ct_kwh`
 - `sensor.opti_price_series`
 - `sensor.opti_forecast_today_kwh`
 - `sensor.opti_forecast_tomorrow_kwh`
 - `sensor.opti_forecast_remaining_today_kwh`
 - `sensor.opti_battery_power_w`
+- `sensor.opti_target_soc`
+- `sensor.opti_charge_power_w`
+- `sensor.opti_price_level`
+- `sensor.opti_peak_reserve_soc`
+- `sensor.opti_balancing_watchdog`
 
 ## Quelle und Lizenz
 
