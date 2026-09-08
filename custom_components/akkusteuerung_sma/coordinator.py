@@ -10,6 +10,11 @@ from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
+from .balancing import (
+    BalancingPersistentState,
+    balancing_watchdog,
+    update_balancing_counters,
+)
 from .const import (
     CAPACITY_UNIT_WH,
     CONF_BATTERY_CAPACITY_ENTITY,
@@ -44,6 +49,7 @@ from .derived import (
     target_soc,
 )
 from .peak import calculate_peak_reserve, charge_ceiling_active, pv_rich_day
+from .storage import BalancingStorage
 from .strategy import MODE_AUTO, StrategyInput, decide_strategy
 from .surplus import DebouncedBoolean, surplus_70_raw, surplus_ac_raw, surplus_veto_raw
 
@@ -53,7 +59,14 @@ _LOGGER = logging.getLogger(__name__)
 class SMAAkkuCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Read source entities and calculate the migrated Opti layers."""
 
-    def __init__(self, hass, entry):
+    def __init__(
+        self,
+        hass,
+        entry,
+        *,
+        balancing_state: BalancingPersistentState,
+        balancing_storage: BalancingStorage,
+    ) -> None:
         super().__init__(
             hass,
             logger=_LOGGER,
@@ -61,6 +74,8 @@ class SMAAkkuCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             update_interval=timedelta(seconds=30),
         )
         self.entry = entry
+        self._balancing_state = balancing_state
+        self._balancing_storage = balancing_storage
         self._target_level: int | None = None
         self._pv_rich_day = False
         self._charge_ceiling_active = False
@@ -156,7 +171,9 @@ class SMAAkkuCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def _async_update_data(self) -> dict[str, Any]:
         soc = self._get_float(CONF_BATTERY_SOC_ENTITY)
-        battery_temp = self._get_float(CONF_BATTERY_TEMP_ENTITY, optional=True, default=20.0)
+        battery_temp = self._get_float(
+            CONF_BATTERY_TEMP_ENTITY, optional=True, default=20.0
+        )
         capacity = self._get_float(CONF_BATTERY_CAPACITY_ENTITY)
         if self.entry.data.get(CONF_BATTERY_CAPACITY_UNIT, CAPACITY_UNIT_WH) == CAPACITY_UNIT_WH:
             capacity /= 1000.0
@@ -260,7 +277,9 @@ class SMAAkkuCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self._charge_ceiling_max_soc = max_soc
 
-        threshold_70 = float(self._setting("akkusteuerung_wr_70proz_ueberschuss_grenze", 0.0))
+        threshold_70 = float(
+            self._setting("akkusteuerung_wr_70proz_ueberschuss_grenze", 0.0)
+        )
         raw_70, surplus_70_w, threshold_70_off = surplus_70_raw(
             grid_export_w=grid_export,
             battery_power_w=battery_power,
@@ -269,7 +288,9 @@ class SMAAkkuCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         surplus_70_active = self._surplus_70.update(raw_70, now, 30)
 
-        threshold_ac = float(self._setting("akkusteuerung_wr_ac_ueberschuss_grenze", 0.0))
+        threshold_ac = float(
+            self._setting("akkusteuerung_wr_ac_ueberschuss_grenze", 0.0)
+        )
         raw_ac, surplus_ac_w, threshold_ac_off = surplus_ac_raw(
             pv_power_w=pv_power,
             battery_power_w=battery_power,
@@ -279,8 +300,12 @@ class SMAAkkuCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         surplus_ac_active = self._surplus_ac.update(raw_ac, now, 30)
 
         veto_on = float(self._setting("akkusteuerung_ueberschuss_veto_grenze", 200.0))
-        veto_off = float(self._setting("akkusteuerung_ueberschuss_veto_aus_grenze", 100.0))
-        scarcity_factor = float(self._setting("akkusteuerung_ueberschuss_veto_knappheit_faktor", 1.0))
+        veto_off = float(
+            self._setting("akkusteuerung_ueberschuss_veto_aus_grenze", 100.0)
+        )
+        scarcity_factor = float(
+            self._setting("akkusteuerung_ueberschuss_veto_knappheit_faktor", 1.0)
+        )
         raw_veto, surplus_veto_w, scarcity_open = surplus_veto_raw(
             grid_export_w=grid_export,
             grid_import_w=grid_import,
@@ -294,19 +319,55 @@ class SMAAkkuCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         surplus_veto_active = self._surplus_veto.update(raw_veto, now, 60)
 
+        # Core balancing only: no BYD cell-spread trigger. The persistent state
+        # replaces upstream counter/input_datetime helpers.
+        done_soc = float(self._setting("opti_balancing_done_soc", 98.5))
+        balancing_changed = update_balancing_counters(
+            self._balancing_state,
+            now=now,
+            soc=soc,
+            done_soc=done_soc,
+        )
+        if balancing_changed:
+            await self._balancing_storage.async_save(self._balancing_state)
+
+        level, percentile, price_count = price_level(
+            current_price_ct, [*price_today, *price_tomorrow]
+        )
+        balancing_result = balancing_watchdog(
+            soc=soc,
+            days_since_full=self._balancing_state.days_since_full,
+            interval_days=int(self._setting("opti_balancing_intervall_tage", 0)),
+            grace_days=int(self._setting("opti_balancing_karenz_tage", 0)),
+            max_paid_ct=float(self._setting("opti_balancing_max_ct", 0.0)),
+            current_price_ct=current_price_ct,
+            feed_in_tariff_ct=float(self._setting("opti_einspeiseverguetung_ct", 0.0)),
+            price_level=level,
+            is_day=sun_above_horizon,
+            grid_balancing_enabled=bool(
+                self._setting("opti_balancing_netzladen", False)
+            ),
+            resting_cell_spread_mv=None,
+            spread_threshold_mv=0.0,
+            spread_cooldown_days=0,
+        )
+        balancing_active = balancing_result.mode in {"pv", "netz"}
+
         calculated_charge_power = charge_power_w(
             soc=soc,
             battery_temp_c=battery_temp,
             battery_capacity_kwh=capacity,
-            max_charge_power_w=float(self._setting("akkusteuerung_max_ladestaerke", 0.0)),
+            max_charge_power_w=float(
+                self._setting("akkusteuerung_max_ladestaerke", 0.0)
+            ),
             forecast_score_value=score_result.score,
-            balancing_active=False,
+            balancing_active=balancing_active,
         )
-        level, percentile, price_count = price_level(
-            current_price_ct, [*price_today, *price_tomorrow]
-        )
+
         ladepreis = float(self._setting("ladepreis", -1.0))
-        discharge_spread = float(self._setting("mindestpreisdifferenz_lade_entladepreis", 0.0))
+        discharge_spread = float(
+            self._setting("mindestpreisdifferenz_lade_entladepreis", 0.0)
+        )
         min_discharge = minimum_discharge_price_ct(ladepreis, discharge_spread)
         runtime = runtime_hours(
             soc=soc,
@@ -332,21 +393,33 @@ class SMAAkkuCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 forecast_score_tomorrow=float(tomorrow_score),
                 price_level=level,
                 current_price_ct=current_price_ct,
-                forecast_grid_charge_enabled=bool(self._setting("opti_prognose_netzladen", False)),
-                pv_surplus_charge_enabled=bool(self._setting("opti_pv_ueberschuss_ladung", False)),
+                forecast_grid_charge_enabled=bool(
+                    self._setting("opti_prognose_netzladen", False)
+                ),
+                pv_surplus_charge_enabled=bool(
+                    self._setting("opti_pv_ueberschuss_ladung", False)
+                ),
                 winter_charging_allowed=True,
-                feed_in_tariff_ct=float(self._setting("opti_einspeiseverguetung_ct", 0.0)),
-                grid_charge_spread_ct=float(self._setting("opti_netzlade_spread_ct", 0.0)),
+                feed_in_tariff_ct=float(
+                    self._setting("opti_einspeiseverguetung_ct", 0.0)
+                ),
+                grid_charge_spread_ct=float(
+                    self._setting("opti_netzlade_spread_ct", 0.0)
+                ),
                 hold_spread_ct=float(self._setting("opti_halte_spread_ct", 0.0)),
                 peak_reserve_active=peak_active,
-                peak_reserve_soc=peak_result.reserve_soc if peak_result.valid else None,
-                peak_reserve_ve_soc=peak_result.reserve_ve_soc if peak_result.valid else None,
+                peak_reserve_soc=(
+                    peak_result.reserve_soc if peak_result.valid else None
+                ),
+                peak_reserve_ve_soc=(
+                    peak_result.reserve_ve_soc if peak_result.valid else None
+                ),
                 min_price_before_peak_ct=peak_result.min_price_before_peak_ct,
                 peak_price_avg_ct=peak_result.peak_price_avg_ct,
                 peak_price_ve_avg_ct=peak_result.peak_price_ve_avg_ct,
                 charge_ceiling_active=self._charge_ceiling_active,
                 charge_ceiling_max_soc=max_soc,
-                balancing_mode="aus",
+                balancing_mode=balancing_result.mode,
                 surplus_70_active=surplus_70_active,
                 surplus_ac_active=surplus_ac_active,
                 surplus_veto_active=surplus_veto_active,
@@ -381,7 +454,11 @@ class SMAAkkuCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "simultaneous_charge_discharge": charge_power > 0 and discharge_power > 0,
             "forecast_effective_remaining_kwh": effective_remaining,
             "forecast_effective_median_kwh": forecast_remaining,
-            "forecast_effective_p10_kwh": forecast_remaining_p10 if forecast_remaining_p10 is not None and forecast_remaining_p10 > 0 else forecast_remaining,
+            "forecast_effective_p10_kwh": (
+                forecast_remaining_p10
+                if forecast_remaining_p10 is not None and forecast_remaining_p10 > 0
+                else forecast_remaining
+            ),
             "forecast_effective_alpha": max(0.0, min(100.0, optimism)) / 100.0,
             "forecast_score_tomorrow": tomorrow_score,
             "forecast_score": score_result.score,
@@ -437,6 +514,14 @@ class SMAAkkuCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "surplus_veto_threshold_off_w": veto_off,
             "surplus_veto_scarcity_factor": scarcity_factor,
             "surplus_veto_scarcity_gate_open": scarcity_open,
+            "balancing_watchdog": balancing_result.mode,
+            "balancing_reason": balancing_result.reason,
+            "balancing_due_reason": balancing_result.due_reason,
+            "balancing_days_since_full": self._balancing_state.days_since_full,
+            "balancing_done_minutes": self._balancing_state.done_minutes,
+            "balancing_last_completion": self._balancing_state.last_completion,
+            "balancing_completion_valid": self._balancing_state.completion_valid,
+            "balancing_done_soc": done_soc,
             "strategy_mode": decision.mode,
             "strategy_reason": decision.reason,
             "strategy_core_valid": core_valid,
