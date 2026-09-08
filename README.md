@@ -15,21 +15,53 @@ Diese Integration übernimmt den Kern der Akku-Optimierung. Die folgenden option
 
 Damit gibt es in dieser Integration vorerst keine KI-Analyse, kein BYD-Monitoring bzw. keine BYD-Modul-Frühwarnung und keine EV-/evcc-Sperrlogik.
 
-## Aktueller Stand
+## Stand der Kernmigration
 
-Die Integration befindet sich noch in der Migration. Bereits umgesetzt sind:
+Der Kern der ursprünglichen Opti-Lösung ist nativ in die Integration übertragen. Umgesetzt sind:
 
 - UI-basierter Config Flow für das Canonical-Mapping
 - Auswahl der Energie-, Batterie-, Strompreis- und Solcast-Entitäten
 - Canonical-Sensoren mit den ursprünglichen Namen `sensor.opti_*`
 - persistente Number-, Select- und Switch-Helfer aus `packages/sma_helpers.yaml`
-- Kernlogik für Forecast, Ziel-SoC, Preisniveau, Peak-Reserve und Überschusssteuerung
+- Forecast-Score heute/morgen und Forecast-Optimismus
+- Ziel-SoC mit Schmitt-Hysterese
+- dynamische Ladeleistung
+- Preisniveau mit Midrank-Perzentilen und fail-closed Preisquellenbehandlung
+- Peak-Reserve inklusive Stunden-/15-Minuten-Raster, DST-Fällen, Reichtag-Horizont und Preisaufschlag
+- Peak-Leiter und Peak-Vorladen
+- 70-%-, AC- und wirtschaftliches Überschuss-Gate mit Hysterese/Entprellung
+- Ladedeckel mit 3-%-Hysterese und Neustart-Wiederherstellung
 - 30-Minuten-Batterieleistungs- und 60-Minuten-Hausverbrauchsmittelwerte aus `packages/sma_statistik.yaml`
 - persistenter Balancing-/Deep-Charge-Watchdog ohne BYD-Zellspreizungs-Erweiterung
+- Strategie-Vorschau mit Entscheidungsgrund
 - Kern-Strategie mit Fail-safe und Prioritätsleiter
-- HACS-Grundstruktur
+- HACS-Grundstruktur und GitHub-Actions-Tests
 
-### `packages/sma_templates.yaml`
+Die Kernlogik ist mit Unit-/Paritätstests gegen wesentliche Randfälle des Ursprungsprojekts abgesichert. Dazu gehören unter anderem Preisquellen-Ausfälle, Peak-Reserve, Ladedeckel, Balancing, Überschuss-Gates und Strategie-Prioritäten.
+
+## Hardware-Adapter bleibt bewusst getrennt
+
+Wie im Ursprungsprojekt schreibt diese Integration **nicht direkt** auf SMA-Modbus-Register. Sie berechnet und setzt den Strategiemodus; die eigentliche Wechselrichter-Ansteuerung bleibt Aufgabe des separaten Hardware-Adapters:
+
+- [Optic00/ha-modbus-akku-adapter](https://github.com/Optic00/ha-modbus-akku-adapter)
+
+Damit bleibt die ursprüngliche Sicherheitsarchitektur erhalten:
+
+```text
+Strategie / Integration
+        ↓
+Akkusteuerung-Modus
+        ↓
+Hardware-Adapter
+        ↓
+SMA Modbus
+```
+
+**Single-Writer-Regel:** Es darf immer nur eine Instanz/Automation den Wechselrichter per Modbus steuern.
+
+Für `Akku Netzladen` muss der verwendete Adapter den dynamischen Netzlade-Modus des Ursprungsprojekts unterstützen.
+
+## `packages/sma_templates.yaml`
 
 Der Kern aus `packages/sma_templates.yaml` wird **nicht noch einmal als Legacy-Template-Satz erzeugt**, weil die entsprechenden Funktionen bereits nativ in der Integration vorhanden sind:
 
@@ -38,22 +70,14 @@ Der Kern aus `packages/sma_templates.yaml` wird **nicht noch einmal als Legacy-T
 - `PV Forecast Bewertung Heute/Morgen` → fachlich durch `sensor.opti_forecast_score` und `sensor.opti_forecast_score_tomorrow` ersetzt
 - `Akku Target SoC Intelligent` → durch `sensor.opti_target_soc` ersetzt
 - `Ueberschuss PV Watt` → durch Canonical-Netzeinspeisung und die nativen Überschuss-Gates ersetzt
-- `Akku Net Verfügbare Energie` und `Verbleibende Sonnenstunden` → bereits Bestandteil der Ziel-SoC-/Forecast-Berechnung und deren Diagnoseattribute
+- `Akku Net Verfügbare Energie` und `Verbleibende Sonnenstunden` → Bestandteil der Ziel-SoC-/Forecast-Berechnung und deren Diagnoseattribute
 - `Strompreis Niveau` → durch `sensor.opti_price_level` ersetzt
 
 Die beiden im Original ausdrücklich nur für **Observability/Vorbereitung** vorgesehenen Sensoren `Akku Soll-SoC Kurve` und `Akkusteuerung Dynamische Ladestaerke (P-Regler)` werden nicht übernommen, da sie weder von Strategie noch Adapter konsumiert werden.
 
 Die Abregelungs-Sensoren `Akku MaxGen Erzeugungsgrenze vor Abregelung` und `Akku Abregelungsleistung` werden ebenfalls nicht in den Kern aufgenommen. Sie benötigen zusätzliche, anlagenspezifische Eingänge für WR-Leistungslimit und installierte PV-Peakleistung und sind für die aktuelle Kernstrategie nicht erforderlich.
 
-Noch nicht vollständig abgeschlossen sind insbesondere:
-
-- die restliche Paritätsprüfung von `packages/opti_derived.yaml`
-- die restliche Paritätsprüfung von `automations/opti_strategie.yaml`
-- abschließende Home-Assistant- und Adapter-Integrationstests
-
-**Die Integration ist deshalb noch nicht für produktive Akku-Steuerung freigegeben.**
-
-## Installation während der Entwicklung
+## Installation
 
 1. Dieses Repository als benutzerdefiniertes Repository in HACS hinzufügen.
 2. Kategorie: Integration.
@@ -61,6 +85,20 @@ Noch nicht vollständig abgeschlossen sind insbesondere:
 4. Home Assistant neu starten.
 5. Unter **Einstellungen → Geräte & Dienste → Integration hinzufügen** `SMA Akku Steuerung` auswählen.
 6. Im Assistenten die vorhandenen Sensoren entsprechend dem ursprünglichen `opti_mapping.example.yaml` zuordnen.
+7. Die erzeugten `sensor.opti_*`-Entitäten und die Strategie-Vorschau prüfen.
+8. Erst danach den separaten Hardware-Adapter anbinden.
+9. Vor Aktivierung sicherstellen, dass kein zweiter Modbus-Schreiber parallel aktiv ist.
+
+## Vor der ersten produktiven Aktivierung
+
+Die Code-/Paritätstests sind grün. Vor einer produktiven Akku-Steuerung sollte trotzdem ein realer Inbetriebnahmetest in Home Assistant erfolgen:
+
+- alle ausgewählten Quell-Entitäten liefern plausible Werte
+- `sensor.opti_price_level` reagiert bei Preisquellen-Ausfall mit `unavailable`
+- `sensor.opti_strategie_vorschau` zeigt plausible Modi und Gründe
+- MinSOC- und maxSOC/Ladedeckel-Verhalten testen
+- Hardware-Adapter zunächst ohne konkurrierende Modbus-Automation prüfen
+- erst danach `Akku Opti Automatik` aktivieren
 
 ## Canonical-Layer
 
@@ -86,6 +124,8 @@ Die Integration erzeugt unter anderem die vom Originalprojekt erwarteten Entitä
 - `sensor.opti_price_level`
 - `sensor.opti_peak_reserve_soc`
 - `sensor.opti_balancing_watchdog`
+- `sensor.opti_strategie_vorschau`
+- `binary_sensor.opti_ladedeckel_aktiv`
 
 ## Quelle und Lizenz
 
