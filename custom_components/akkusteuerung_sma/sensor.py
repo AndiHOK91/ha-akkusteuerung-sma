@@ -1,7 +1,4 @@
-"""Sensors for SMA Akku Steuerung.
-
-Migrated from the opti canonical sensor layer.
-"""
+"""Sensors for SMA Akku Steuerung."""
 
 from __future__ import annotations
 
@@ -16,34 +13,33 @@ SENSORS = {
     "charge_power": "Optimale Ladeleistung",
     "price_level": "Preisniveau",
     "peak_reserve_soc": "Peak Reserve SOC",
+    "pv_surplus": "PV Überschuss",
+    "mode": "Strategie Modus",
 }
 
 
-async def async_setup_entry(
-    hass: HomeAssistant,
-    entry: ConfigEntry,
-    async_add_entities,
-) -> None:
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities):
     """Create opti sensors."""
+    coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
     async_add_entities(
-        OptiSensor(entry, key, name) for key, name in SENSORS.items()
+        OptiSensor(coordinator, key, name) for key, name in SENSORS.items()
     )
 
 
 class OptiSensor(SensorEntity):
-    """Representation of a migrated opti sensor."""
+    """Representation of a calculated opti value."""
 
-    def __init__(self, entry: ConfigEntry, key: str, name: str) -> None:
+    def __init__(self, coordinator, key: str, name: str):
+        self.coordinator = coordinator
         self._key = key
         self._attr_name = name
-        self._attr_unique_id = f"{DOMAIN}_{key}"
-        self._entry = entry
+        self._attr_unique_id = f"akkusteuerung_sma_{key}"
 
     @property
     def native_value(self):
-        """Return current calculated value.
+        return self.coordinator.data.get(self._key)
 
-        Calculation will be supplied by the migrated strategy coordinator.
-        """
-        data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id, {})
-        return data.get(self._key)
+    async def async_added_to_hass(self):
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
