@@ -11,6 +11,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
+from .const import DOMAIN
+
 
 @dataclass(frozen=True, slots=True)
 class OptiSwitchDefinition:
@@ -50,10 +52,17 @@ class OptiSwitch(SwitchEntity, RestoreEntity):
     _attr_has_entity_name = True
 
     def __init__(self, entry: ConfigEntry, definition: OptiSwitchDefinition) -> None:
+        self._entry_id = entry.entry_id
+        self._definition = definition
         self._attr_name = definition.name
         self._attr_unique_id = f"{entry.entry_id}_{definition.key}"
         self._attr_icon = definition.icon
         self._attr_is_on = False
+
+    def _sync_runtime(self) -> None:
+        runtime = self.hass.data.get(DOMAIN, {}).get(self._entry_id)
+        if runtime is not None:
+            runtime.setdefault("settings", {})[self._definition.key] = bool(self._attr_is_on)
 
     async def async_added_to_hass(self) -> None:
         """Restore the previous boolean state after restart."""
@@ -61,13 +70,16 @@ class OptiSwitch(SwitchEntity, RestoreEntity):
         last_state = await self.async_get_last_state()
         if last_state is not None and last_state.state in (STATE_ON, STATE_OFF):
             self._attr_is_on = last_state.state == STATE_ON
+        self._sync_runtime()
 
     async def async_turn_on(self, **kwargs) -> None:
         """Turn the helper on."""
         self._attr_is_on = True
+        self._sync_runtime()
         self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs) -> None:
         """Turn the helper off."""
         self._attr_is_on = False
+        self._sync_runtime()
         self.async_write_ha_state()
